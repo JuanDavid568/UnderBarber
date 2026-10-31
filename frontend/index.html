@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="es-CO">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UnderBarber · Barbería en Bogotá</title>
+  <meta name="description" content="UnderBarber: barbería con tres barberos especialistas. Responde 6 preguntas, descubre con quién cortarte el pelo y agenda tu cita en línea.">
+  <meta name="theme-color" content="#131110">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
+  <script src="/js/cover-init.js"></script>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <!-- Portada: se muestra una vez por visita; "Reservar" abre la página de la barbería -->
+  <section class="cover" id="cover" aria-labelledby="cover-title">
+    <div class="cover-content">
+      <h1 class="cover-title" id="cover-title">UnderBarber</h1>
+      <p class="cover-lead">Encuentra tu barbero y reserva tu cita en minutos.</p>
+      <button class="btn btn-cover" id="cover-start" type="button">Reservar</button>
+    </div>
+    <div class="fade-scale fade-scale-cover" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+    </div>
+  </section>
+
+  <a class="skip-link" href="#contenido">Saltar al contenido</a>
+
+  <header class="site-header" id="top">
+    <a class="brand" href="#/" aria-label="UnderBarber, inicio">
+      <svg class="pole" viewBox="0 0 16 40" aria-hidden="true">
+        <rect x="2" y="1" width="12" height="38" rx="6" class="pole-body"/>
+        <path d="M2 10 14 4M2 20 14 14M2 30 14 24M2 40 14 34" class="pole-stripe"/>
+      </svg>
+      <span class="wordmark">UnderBarber</span>
+    </a>
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menú</button>
+    <nav class="site-nav" id="site-nav" aria-label="Principal">
+      <a href="#servicios">Servicios</a>
+      <a href="#equipo">Equipo</a>
+      <a href="#encuentra-tu-barbero">Encuentra tu barbero</a>
+      <a href="#contacto">Contacto</a>
+      <span class="nav-user" id="nav-user"></span>
+      <a class="btn btn-small" href="#reservar" id="nav-book">Reservar cita</a>
+    </nav>
+  </header>
+
+  <main id="contenido" tabindex="-1">
+    <!-- ================= PÁGINA PRINCIPAL ================= -->
+    <div id="landing">
+      <section class="hero">
+        <div class="hero-copy">
+          <h1>Tu corte, con el barbero que mejor lo hace.</h1>
+          <p class="lead">Tres barberos, tres especialidades. Responde seis preguntas y te decimos con quién agendar tu cita.</p>
+          <div class="hero-actions">
+            <a class="btn" href="#encuentra-tu-barbero" id="hero-quiz">Encuentra tu barbero</a>
+            <a class="btn btn-ghost" href="#reservar">Reservar cita</a>
+          </div>
+        </div>
+        <div class="fade-scale" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </section>
+
+      <section class="section" id="servicios" aria-labelledby="t-servicios">
+        <div class="section-head">
+          <h2 id="t-servicios">Servicios y precios</h2>
+          <p>Todos incluyen lavado y peinado final. Precios en pesos colombianos.</p>
+        </div>
+        <ul class="menu-board" id="services-list" aria-live="polite">
+          <li class="muted">Cargando servicios…</li>
+        </ul>
+      </section>
+
+      <section class="section section-alt" id="equipo" aria-labelledby="t-equipo">
+        <div class="section-head">
+          <h2 id="t-equipo">El equipo</h2>
+          <p>Cada barbero se enfoca en lo que mejor sabe hacer.</p>
+        </div>
+        <div class="team" id="team-list" aria-live="polite">
+          <p class="muted">Cargando equipo…</p>
+        </div>
+      </section>
+
+      <section class="section" id="encuentra-tu-barbero" aria-labelledby="t-quiz">
+        <div class="section-head">
+          <h2 id="t-quiz">Encuentra tu barbero</h2>
+          <p>Seis preguntas rápidas sobre el corte que quieres. Sin cuenta, sin compromiso.</p>
+        </div>
+        <div class="quiz" id="quiz-root"></div>
+      </section>
+
+      <section class="section section-alt" id="reservar" aria-labelledby="t-reservar">
+        <div class="section-head">
+          <h2 id="t-reservar">Reserva tu cita</h2>
+          <p>Elige servicio, barbero y horario. Necesitas una cuenta para confirmar.</p>
+        </div>
+        <div class="booking" id="booking-root"></div>
+      </section>
+
+      <section class="section" id="contacto" aria-labelledby="t-contacto">
+        <div class="section-head">
+          <h2 id="t-contacto">Visítanos</h2>
+        </div>
+        <div class="contact-grid">
+          <div>
+           <h3>Dónde</h3>
+           <p>94a4 Cl. 61a Sur<br>Bogotá, Colombia</p>
+           <p><a href="https://www.google.com/maps/search/?api=1&query=94a4+Cl.+61a+Sur+Bogot%C3%A1" rel="noopener">Ver en Google Maps</a></p>
+          </div>
+          <div>
+            <h3>Horario</h3>
+            <ul class="plain" id="hours-list"><li class="muted">Cargando…</li></ul>
+          </div>
+          <div>
+            <h3>Escríbenos</h3>
+            <p><a href="https://wa.me/573174814255" rel="noopener">WhatsApp · 317 481 4255</a></p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================= PANELES (cuenta, barbero, administrador) ================= -->
+    <div id="panel" hidden></div>
+  </main>
+
+  <footer class="site-footer">
+    <p>© <span id="year"></span> UnderBarber. Hecho en Colombia.</p>
+    <p class="muted">Diseñado y especificado con OpenSpec · Node.js, Express y PostgreSQL</p>
+  </footer>
+
+  <!-- Inicio de sesión / registro -->
+  <dialog id="auth-dialog" aria-labelledby="auth-title">
+    <form method="dialog" class="dialog-close"><button aria-label="Cerrar">Cerrar</button></form>
+    <h2 id="auth-title">Entra a tu cuenta</h2>
+    <div class="tabs" role="tablist" aria-label="Acceso">
+      <button role="tab" id="tab-login" aria-selected="true" aria-controls="form-login">Iniciar sesión</button>
+      <button role="tab" id="tab-register" aria-selected="false" aria-controls="form-register">Crear cuenta</button>
+    </div>
+    <form id="form-login" class="form" role="tabpanel" aria-labelledby="tab-login" novalidate>
+      <label>Correo
+        <input type="email" name="email" autocomplete="email" required>
+      </label>
+      <label>Contraseña
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn" type="submit">Iniciar sesión</button>
+    </form>
+    <form id="form-register" class="form" role="tabpanel" aria-labelledby="tab-register" hidden novalidate>
+      <label>Nombre
+        <input type="text" name="name" autocomplete="name" required minlength="2" maxlength="100">
+      </label>
+      <label>Correo
+        <input type="email" name="email" autocomplete="email" required>
+      </label>
+      <label>Celular <span class="muted">(opcional)</span>
+        <input type="tel" name="phone" autocomplete="tel" maxlength="20">
+      </label>
+      <label>Contraseña
+        <input type="password" name="password" autocomplete="new-password" required minlength="8" maxlength="72">
+        <small class="muted">Mínimo 8 caracteres.</small>
+      </label>
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn" type="submit">Crear cuenta</button>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

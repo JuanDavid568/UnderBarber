@@ -1,0 +1,30 @@
+# Blueprint de Render: crea la base de datos PostgreSQL y el servicio web con un clic.
+# Render > New > Blueprint > selecciona tu repositorio.
+databases:
+  - name: underbarber-db
+    databaseName: underbarber
+    user: underbarber
+    plan: free
+
+services:
+  - type: web
+    name: underbarber
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: underbarber-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      # Render te los pide al crear el Blueprint (no se guardan en el repositorio):
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: BARBER_DEFAULT_PASSWORD
+        sync: false
