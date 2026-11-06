@@ -54,13 +54,6 @@ npm install
 npm start                    # http://localhost:3000
 ```
 
-La primera vez, la app crea las tablas y carga los datos iniciales sola. En desarrollo (`NODE_ENV` distinto de `production`) se crean estas cuentas de prueba:
-
-| Rol | Correo | Contraseña |
-|---|---|---|
-| Administrador | `admin@underbarber.com` | `admin12345` |
-| Barberos | `santi@`, `andres@`, `camilo@underbarber.com` | `barbero123` |
-| Cliente | `cliente@underbarber.com` | `cliente123` |
 
 > En producción **no** se crean cuentas de prueba ni contraseñas por defecto (ver abajo).
 
@@ -148,3 +141,54 @@ La carpeta `openspec/` sigue la estructura de OpenSpec: `project.md`, una spec p
 ## Seguridad (resumen)
 
 Contraseñas con bcrypt; sesiones JWT con expiración; límites de intentos en login, registro, cuestionario y reservas; cabeceras con helmet y CSP estricta; consultas parametrizadas; texto dinámico escapado en el frontend; secretos solo por variables de entorno; contenedor sin privilegios de root.
+
+## Qué hace cada parte del proyecto
+
+### Raíz
+| Archivo | Para qué sirve |
+|---|---|
+| `Dockerfile` | Construye la imagen de la app para correrla en Docker o en un hosting |
+| `docker-compose.yml` | Levanta la app y la base de datos en tu computador con un solo comando |
+| `render.yaml` | Le dice a Render cómo crear el servicio web y la base de datos |
+| `.env.example` | Ejemplo de variables de entorno (base de datos, claves, cuentas iniciales) |
+| `.gitignore` | Archivos que Git no sube (por ejemplo `.env` y `node_modules`) |
+| `.dockerignore` | Archivos que Docker no copia a la imagen |
+
+### `frontend/` (lo que ve el cliente)
+| Archivo | Para qué sirve |
+|---|---|
+| `index.html` | La página completa: portada, inicio, servicios, equipo, cuestionario, reservas y contacto |
+| `css/styles.css` | Todos los estilos y la adaptación a celular |
+| `js/app.js` | Arranque de la página, portada, menú y sección del equipo |
+| `js/quiz.js` | El cuestionario «Encuentra tu barbero» y su resultado |
+| `js/booking.js` | El flujo de reservar: servicio, barbero, fecha y hora |
+| `js/panels.js` | Paneles de cliente («Mis citas»), barbero y administrador |
+| `js/api.js` | Comunicación con el backend |
+| `js/ui.js` | Funciones comunes para dibujar la interfaz de forma segura |
+| `js/cover-init.js` | Decide si se muestra la portada al entrar |
+| `img/barbers/` | Fotos de los barberos |
+
+### `backend/src/` (el servidor)
+| Archivo | Para qué sirve |
+|---|---|
+| `server.js` | Punto de entrada: valida la configuración, prepara la base y arranca el servidor |
+| `app.js` | Configura Express: seguridad, rutas y entrega del frontend |
+| `config.js` | Lee las variables de entorno |
+| `db.js` | Conexión a PostgreSQL y manejo de transacciones |
+| `init.js` | Crea las tablas y carga los datos iniciales la primera vez |
+| `util.js` | Errores HTTP y validaciones |
+| `middleware/auth.js` | Inicio de sesión con JWT y control de roles (cliente, barbero, admin) |
+| `routes/auth.js` | Registro, login y cambio de contraseña |
+| `routes/public.js` | Barberos, servicios, horarios libres y cuestionario |
+| `routes/appointments.js` | Crear, ver y cancelar citas del cliente |
+| `routes/barber.js` | Agenda del barbero y cambio de estado de citas |
+| `routes/admin.js` | Estadísticas, servicios y edición de barberos |
+| `services/quiz.js` | Calcula qué barbero recomienda el cuestionario |
+| `services/slots.js` | Calcula los horarios disponibles de cada barbero |
+
+### Otras carpetas
+| Carpeta | Para qué sirve |
+|---|---|
+| `database/` | `schema.sql` (tablas) y `seed.sql` (datos de ejemplo) |
+| `backend/test/` | Pruebas automáticas del cuestionario y los horarios |
+| `openspec/` | Especificaciones del proyecto hechas con OpenSpec |
