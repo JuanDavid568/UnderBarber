@@ -142,11 +142,23 @@ function renderTeam() {
   );
 }
 
+// Dice si un barbero está dentro de su horario en este momento (hora de Bogotá)
+function atiendeAhora(b, ahora = new Date()) {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/Bogota", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(ahora)
+      .map((x) => [x.type, x.value])
+  );
+  const dia = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[p.weekday];
+  const hora = `${p.hour}:${p.minute}`;
+  return b.workDays.includes(dia) && hora >= b.workStart.slice(0, 5) && hora < b.workEnd.slice(0, 5);
+}
+
 function renderHours() {
   mount(
     $("#hours-list"),
     publicData.barbers.map((b) =>
-      h("li", {}, h("strong", {}, b.name.split(" ")[0].replace(/"/g, "")), ` · ${compactDays(b.workDays)}, ${b.workStart} a ${b.workEnd}`)
+      h("li", {}, h("strong", {}, b.name.split(" ")[0].replace(/"/g, "")), ` · ${compactDays(b.workDays)}, ${b.workStart} a ${b.workEnd} `, atiendeAhora(b) && h("span", { class: "tag" }, "Atiende ahora"))
     )
   );
 }
