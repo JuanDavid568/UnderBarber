@@ -54,3 +54,102 @@ test("límites del día en la zona de la barbería", () => {
   assert.equal(start.toISOString(), "2026-11-03T05:00:00.000Z");
   assert.equal(end.toISOString(), "2026-11-04T05:00:00.000Z");
 });
+
+// ======================= Patrones de diseño de util.js =======================
+const {
+  CitaBuilder, EstadoCita, ManejadorReserva, ActualizarRecurso, conCache, limpiarCachesPublicos,
+  FabricaNotificador, publicar, registrarObservadores, HttpError,
+} = require("../src/util");
+
+test("Builder: arma una cita válida y rechaza datos malos", () => {
+  const d = new CitaBuilder().barbero("1").servicio(2).notas("  tijera ").inicio("2030-01-01T15:00:00.000Z").build();
+  assert.equal(d.barberId, 1);
+  assert.equal(d.serviceId, 2);
+  assert.equal(d.notes, "tijera");
+  assert.equal(d.startsAt.toISOString(), "2030-01-01T15:00:00.000Z");
+  assert.throws(() => new CitaBuilder().barbero("x").servicio(1).inicio("2030-01-01T15:00:00Z").build(), HttpError);
+  assert.throws(() => new CitaBuilder().barbero(1).servicio(1).inicio("no es fecha").build(), /horario no es válido/);
+});
+
+test("State: cada estado sabe a cuáles puede pasar", () => {
+  assert.ok(EstadoCita.de("pending").puedePasarA("confirmed"));
+  assert.ok(EstadoCita.de("pending").cancelable);
+  assert.ok(EstadoCita.de("confirmed").puedePasarA("completed"));
+  assert.equal(EstadoCita.de("pending").puedePasarA("completed"), false);
+  assert.equal(EstadoCita.de("completed").cancelable, false);
+  assert.equal(EstadoCita.de("cancelled").puedePasarA("confirmed"), false);
+  assert.equal(EstadoCita.de("raro").puedePasarA("confirmed"), false);
+});
+
+test("Chain of Responsibility: recorre los eslabones en orden y se corta en el primero que falla", async () => {
+  const orden = [];
+  const eslabon = (nombre, falla) => new (class extends ManejadorReserva {
+    async validar() {
+      orden.push(nombre);
+      if (falla) throw new HttpError(409, nombre + " falló");
+    }
+  })();
+  const a = eslabon("a");
+  a.siguiente(eslabon("b")).siguiente(eslabon("c"));
+  await a.manejar({});
+  assert.deepEqual(orden, ["a", "b", "c"]);
+
+  orden.length = 0;
+  const x = eslabon("x");
+  x.siguiente(eslabon("y", true)).siguiente(eslabon("z"));
+  await assert.rejects(() => x.manejar({}), /y falló/);
+  assert.deepEqual(orden, ["x", "y"]); // «z» nunca se ejecuta
+});
+
+test("Template Method: el esqueleto fija el orden y las subclases ponen los pasos", async () => {
+  const pasos = [];
+  class Demo extends ActualizarRecurso {
+    constructor() { super("No existe."); }
+    async cargar(id) { pasos.push("cargar"); return id === 1 ? { n: 1 } : undefined; }
+    validar(body, cur) { pasos.push("validar"); return { n: body.n ?? cur.n }; }
+    async guardar(id, v) { pasos.push("guardar"); return v; }
+    responder(f) { pasos.push("responder"); return { ok: f.n }; }
+  }
+  assert.deepEqual(await new Demo().ejecutar(1, { n: 7 }), { ok: 7 });
+  assert.deepEqual(pasos, ["cargar", "validar", "guardar", "responder"]);
+  await assert.rejects(() => new Demo().ejecutar(2, {}), /No existe/);
+});
+
+test("Proxy: reutiliza el resultado hasta que se limpia o vence", async () => {
+  let llamadas = 0;
+  const lista = conCache(async () => ++llamadas, 60000);
+  assert.equal(await lista(), 1);
+  assert.equal(await lista(), 1); // viene del caché
+  limpiarCachesPublicos();
+  assert.equal(await lista(), 2); // se volvió a cargar
+});
+
+test("Factory Method: crea el notificador según el canal y rechaza canales desconocidos", () => {
+  const n = FabricaNotificador.para("memoria").crear();
+  n.notificar("hola");
+  assert.deepEqual(n.mensajes, ["hola"]);
+  assert.equal(typeof FabricaNotificador.para("consola").crear().notificar, "function");
+  assert.equal(typeof FabricaNotificador.para("silencio").crear().notificar, "function");
+  assert.throws(() => FabricaNotificador.para("paloma"), /desconocido/);
+});
+
+test("Observer: los eventos de citas llegan al notificador y un observador roto no tumba al publicador", () => {
+  const n = FabricaNotificador.para("memoria").crear();
+  registrarObservadores(n);
+  publicar("cita:creada", { id: 5, service: { name: "Fade" }, barber: { name: "Santi" }, startsAt: new Date("2030-01-01T15:00:00Z") });
+  publicar("cita:cancelada", { id: 5 });
+  publicar("cita:estado", { id: 5, status: "confirmed" });
+  assert.equal(n.mensajes.length, 3);
+  assert.match(n.mensajes[0], /Nueva cita #5: Fade con Santi/);
+  assert.match(n.mensajes[1], /cancelada/);
+  assert.match(n.mensajes[2], /confirmed/);
+
+  registrarObservadores({ notificar() { throw new Error("falla"); } });
+  const log = console.error;
+  console.error = () => {};
+  try {
+    assert.doesNotThrow(() => publicar("cita:cancelada", { id: 9 }));
+  } finally {
+    console.error = log;
+  }
+});

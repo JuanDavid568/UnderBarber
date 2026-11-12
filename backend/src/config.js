@@ -10,6 +10,8 @@ function bool(value, fallback = false) {
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
+// PATRÓN Singleton (creacional): este objeto se crea una sola vez; Node guarda el módulo en caché y todos los
+// archivos que hacen require("./config") reciben la misma instancia. Object.freeze impide modificarlo después.
 const config = {
   isProd,
   port: Number(env.PORT) || 3000,
@@ -27,7 +29,10 @@ const config = {
   adminPassword: env.ADMIN_PASSWORD || "",
   barberDefaultPassword: env.BARBER_DEFAULT_PASSWORD || "",
   bcryptRounds: 10,
+  // Canal de las notificaciones de citas: consola | memoria | silencio (ver FabricaNotificador en util.js)
+  notifyChannel: env.NOTIFY_CHANNEL || "consola",
 };
+Object.freeze(config);
 
 function validate() {
   if (!/^[+-]\d{2}:\d{2}$/.test(config.shopUtcOffset)) {

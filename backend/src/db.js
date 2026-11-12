@@ -2,6 +2,8 @@
 const { Pool } = require("pg");
 const { config } = require("./config");
 
+// PATRÓN Singleton (creacional): un único pool de conexiones para toda la aplicación. Node cachea el módulo,
+// así que cada require("./db") devuelve este mismo objeto y no se abren conexiones de más.
 const pool = new Pool({
   connectionString: config.databaseUrl,
   ssl: config.databaseSsl ? { rejectUnauthorized: false } : undefined,
@@ -15,7 +17,19 @@ pool.on("error", (err) => {
   console.error("[db] error en cliente inactivo:", err.message);
 });
 
-const query = (text, params) => pool.query(text, params);
+// PATRÓN Decorator (estructural): envuelve una función y le añade comportamiento (aviso de consultas lentas)
+// sin tocar la función original. Solo se registra el inicio del SQL, nunca los parámetros.
+const conAvisoDeLentitud = (fn, limiteMs = 800) => async (...args) => {
+  const inicio = Date.now();
+  try {
+    return await fn(...args);
+  } finally {
+    const ms = Date.now() - inicio;
+    if (ms > limiteMs) console.warn(`[db] consulta lenta (${ms} ms): ${String(args[0]).replace(/\s+/g, " ").slice(0, 80)}`);
+  }
+};
+
+const query = conAvisoDeLentitud((text, params) => pool.query(text, params));
 
 /** Ejecuta fn(client) dentro de una transacción. */
 async function tx(fn) {

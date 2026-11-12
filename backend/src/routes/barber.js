@@ -7,6 +7,7 @@ const { requireRole } = require("../middleware/auth");
 const { isValidDate, shopDateOf, dayBounds } = require("../services/slots");
 const {
   HttpError, wrap, int, str, time, weekdays, tags, publicBarber, shapeAppointment, APPOINTMENT_SELECT,
+  EstadoCita, ActualizarRecurso, limpiarCachesPublicos, publicar,
 } = require("../util");
 
 const router = express.Router();
@@ -44,8 +45,6 @@ router.get("/appointments", wrap(async (req, res) => {
   res.json({ date, days, appointments: rows.map(shapeAppointment) });
 }));
 
-const TRANSITIONS = { pending: ["confirmed", "cancelled"], confirmed: ["completed", "cancelled"] };
-
 router.patch("/appointments/:id/status", wrap(async (req, res) => {
   const id = int(req.params.id, "La cita");
   const next = (req.body || {}).status;
@@ -62,13 +61,15 @@ router.patch("/appointments/:id/status", wrap(async (req, res) => {
   const { rows } = await query(`SELECT status, starts_at FROM appointments ${where}`, params);
   const appt = rows[0];
   if (!appt) throw new HttpError(404, "No encontramos esa cita.");
-  if (!(TRANSITIONS[appt.status] || []).includes(next)) {
+  // PATRÓN State: el estado actual de la cita decide a qué estados puede pasar
+  if (!EstadoCita.de(appt.status).puedePasarA(next)) {
     throw new HttpError(409, "No se puede pasar esa cita de «" + appt.status + "» a «" + next + "».");
   }
   if (next === "completed" && appt.starts_at > new Date()) {
     throw new HttpError(409, "Solo puedes marcarla como completada cuando ya empezó.");
   }
   await query("UPDATE appointments SET status = $1 WHERE id = $2", [next, id]);
+  publicar("cita:estado", { id, status: next }); // PATRÓN Observer
   res.json({ ok: true, status: next });
 }));
 
@@ -81,26 +82,35 @@ router.get("/profile", wrap(async (req, res) => {
   res.json({ barber: publicBarber(rows[0]) });
 }));
 
+// PATRÓN Template Method: ActualizarRecurso (util.js) define el esqueleto cargar → validar → guardar → responder;
+// aquí solo se implementan los pasos propios del perfil del barbero.
+class ActualizarPerfil extends ActualizarRecurso {
+  constructor() { super("Ese barbero no existe."); }
+  async cargar(id) { return (await query("SELECT * FROM barbers WHERE id = $1", [id])).rows[0]; }
+  validar(body, cur) {
+    const bio = body.bio === undefined ? cur.bio : str(body.bio, "La biografía", { max: 600, optional: true });
+    const specialties = body.specialties === undefined ? cur.specialties : tags(body.specialties);
+    const workDays = body.workDays === undefined ? cur.work_days : weekdays(body.workDays);
+    const workStart = body.workStart === undefined ? cur.work_start.slice(0, 5) : time(body.workStart, "La hora de inicio");
+    const workEnd = body.workEnd === undefined ? cur.work_end.slice(0, 5) : time(body.workEnd, "La hora de cierre");
+    if (workEnd <= workStart) throw new HttpError(400, "La hora de cierre debe ser después de la de inicio.");
+    return { bio, specialties, workDays, workStart, workEnd };
+  }
+  async guardar(id, v) {
+    const upd = await query(
+      `UPDATE barbers SET bio = $1, specialties = $2, work_days = $3, work_start = $4, work_end = $5
+        WHERE id = $6 RETURNING *`,
+      [v.bio, v.specialties, v.workDays, v.workStart, v.workEnd, id]
+    );
+    limpiarCachesPublicos(); // el equipo y los horarios públicos están en caché (PATRÓN Proxy)
+    return upd.rows[0];
+  }
+  responder(fila) { return { barber: publicBarber(fila) }; }
+}
+
 router.patch("/profile", wrap(async (req, res) => {
   const barberId = await resolveBarberId(req, { required: true });
-  const { rows } = await query("SELECT * FROM barbers WHERE id = $1", [barberId]);
-  const cur = rows[0];
-  if (!cur) throw new HttpError(404, "Ese barbero no existe.");
-
-  const body = req.body || {};
-  const bio = body.bio === undefined ? cur.bio : str(body.bio, "La biografía", { max: 600, optional: true });
-  const specialties = body.specialties === undefined ? cur.specialties : tags(body.specialties);
-  const workDays = body.workDays === undefined ? cur.work_days : weekdays(body.workDays);
-  const workStart = body.workStart === undefined ? cur.work_start.slice(0, 5) : time(body.workStart, "La hora de inicio");
-  const workEnd = body.workEnd === undefined ? cur.work_end.slice(0, 5) : time(body.workEnd, "La hora de cierre");
-  if (workEnd <= workStart) throw new HttpError(400, "La hora de cierre debe ser después de la de inicio.");
-
-  const upd = await query(
-    `UPDATE barbers SET bio = $1, specialties = $2, work_days = $3, work_start = $4, work_end = $5
-      WHERE id = $6 RETURNING *`,
-    [bio, specialties, workDays, workStart, workEnd, barberId]
-  );
-  res.json({ barber: publicBarber(upd.rows[0]) });
+  res.json(await new ActualizarPerfil().ejecutar(barberId, req.body));
 }));
 
 module.exports = router;

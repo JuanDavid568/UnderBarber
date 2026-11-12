@@ -5,12 +5,16 @@ const helmet = require("helmet");
 const cors = require("cors");
 const { config } = require("./config");
 const { query } = require("./db");
-const { HttpError, wrap } = require("./util");
+const { HttpError, wrap, FabricaNotificador, registrarObservadores } = require("./util");
 
 const FRONTEND_DIR = path.join(__dirname, "..", "..", "frontend");
 
 function createApp() {
   const app = express();
+  // PATRONES Factory Method + Observer: la fábrica crea el notificador según NOTIFY_CHANNEL y se suscribe a los
+  // eventos de las citas (creada, cancelada, cambio de estado).
+  registrarObservadores(FabricaNotificador.para(config.notifyChannel).crear());
+
   app.disable("x-powered-by");
   app.set("trust proxy", 1); // detrás del proxy del hosting (Render, Railway…) para IP real y rate limit
 

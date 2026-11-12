@@ -7,10 +7,17 @@ const { requireRole } = require("../middleware/auth");
 const { isValidDate, shopDateOf, dayBounds } = require("../services/slots");
 const {
   HttpError, wrap, int, str, time, weekdays, tags, publicBarber, publicService, shapeAppointment, APPOINTMENT_SELECT,
+  ActualizarRecurso, limpiarCachesPublicos,
 } = require("../util");
 
 const router = express.Router();
 router.use(requireRole("admin"));
+
+// Cualquier cambio del administrador (POST, PUT, DELETE) invalida las listas públicas en caché (PATRÓN Proxy)
+router.use((req, res, next) => {
+  if (req.method !== "GET") res.on("finish", limpiarCachesPublicos);
+  next();
+});
 
 router.get("/stats", wrap(async (_req, res) => {
   const today = dayBounds(shopDateOf(new Date(), config.shopUtcOffset), config.shopUtcOffset);
@@ -101,17 +108,24 @@ router.post("/services", wrap(async (req, res) => {
   res.status(201).json({ service: { ...publicService(rows[0]), active: rows[0].active, position: rows[0].position } });
 }));
 
+// PATRÓN Template Method: mismo esqueleto (ActualizarRecurso, en util.js) para editar servicios y barberos.
+class ActualizarServicio extends ActualizarRecurso {
+  constructor() { super("Ese servicio no existe."); }
+  async cargar(id) { return (await query("SELECT * FROM services WHERE id = $1", [id])).rows[0]; }
+  validar(body, cur) { return serviceFields(body, cur); }
+  async guardar(id, f) {
+    const { rows } = await query(
+      `UPDATE services SET name = $1, description = $2, price = $3, duration_min = $4, position = $5, active = $6
+        WHERE id = $7 RETURNING *`,
+      [f.name, f.description, f.price, f.duration_min, f.position, f.active, id]
+    );
+    return rows[0];
+  }
+  responder(r) { return { service: { ...publicService(r), active: r.active, position: r.position } }; }
+}
+
 router.put("/services/:id", wrap(async (req, res) => {
-  const id = int(req.params.id, "El servicio");
-  const cur = (await query("SELECT * FROM services WHERE id = $1", [id])).rows[0];
-  if (!cur) throw new HttpError(404, "Ese servicio no existe.");
-  const f = serviceFields(req.body || {}, cur);
-  const { rows } = await query(
-    `UPDATE services SET name = $1, description = $2, price = $3, duration_min = $4, position = $5, active = $6
-      WHERE id = $7 RETURNING *`,
-    [f.name, f.description, f.price, f.duration_min, f.position, f.active, id]
-  );
-  res.json({ service: { ...publicService(rows[0]), active: rows[0].active, position: rows[0].position } });
+  res.json(await new ActualizarServicio().ejecutar(int(req.params.id, "El servicio"), req.body));
 }));
 
 // «Eliminar» = desactivar, para no romper las citas históricas
@@ -129,30 +143,36 @@ router.get("/barbers", wrap(async (_req, res) => {
   res.json({ barbers: rows.map((r) => ({ ...publicBarber(r), active: r.active })) });
 }));
 
+class ActualizarBarbero extends ActualizarRecurso {
+  constructor() { super("Ese barbero no existe."); }
+  async cargar(id) { return (await query("SELECT * FROM barbers WHERE id = $1", [id])).rows[0]; }
+  validar(b, cur) {
+    const has = (k) => b[k] !== undefined;
+    const displayName = has("name") ? str(b.name, "El nombre", { min: 2, max: 120 }) : cur.display_name;
+    const title = has("title") ? str(b.title, "El título", { max: 120 }) : cur.title;
+    const bio = has("bio") ? str(b.bio, "La biografía", { max: 600, optional: true }) : cur.bio;
+    const specialties = has("specialties") ? tags(b.specialties) : cur.specialties;
+    const workDays = has("workDays") ? weekdays(b.workDays) : cur.work_days;
+    const workStart = has("workStart") ? time(b.workStart, "La hora de inicio") : cur.work_start.slice(0, 5);
+    const workEnd = has("workEnd") ? time(b.workEnd, "La hora de cierre") : cur.work_end.slice(0, 5);
+    const active = has("active") ? b.active === true : cur.active;
+    if (workEnd <= workStart) throw new HttpError(400, "La hora de cierre debe ser después de la de inicio.");
+    return { displayName, title, bio, specialties, workDays, workStart, workEnd, active };
+  }
+  async guardar(id, v) {
+    const { rows } = await query(
+      `UPDATE barbers SET display_name = $1, title = $2, bio = $3, specialties = $4,
+              work_days = $5, work_start = $6, work_end = $7, active = $8
+        WHERE id = $9 RETURNING *`,
+      [v.displayName, v.title, v.bio, v.specialties, v.workDays, v.workStart, v.workEnd, v.active, id]
+    );
+    return rows[0];
+  }
+  responder(r) { return { barber: { ...publicBarber(r), active: r.active } }; }
+}
+
 router.put("/barbers/:id", wrap(async (req, res) => {
-  const id = int(req.params.id, "El barbero");
-  const cur = (await query("SELECT * FROM barbers WHERE id = $1", [id])).rows[0];
-  if (!cur) throw new HttpError(404, "Ese barbero no existe.");
-  const b = req.body || {};
-  const has = (k) => b[k] !== undefined;
-
-  const displayName = has("name") ? str(b.name, "El nombre", { min: 2, max: 120 }) : cur.display_name;
-  const title = has("title") ? str(b.title, "El título", { max: 120 }) : cur.title;
-  const bio = has("bio") ? str(b.bio, "La biografía", { max: 600, optional: true }) : cur.bio;
-  const specialties = has("specialties") ? tags(b.specialties) : cur.specialties;
-  const workDays = has("workDays") ? weekdays(b.workDays) : cur.work_days;
-  const workStart = has("workStart") ? time(b.workStart, "La hora de inicio") : cur.work_start.slice(0, 5);
-  const workEnd = has("workEnd") ? time(b.workEnd, "La hora de cierre") : cur.work_end.slice(0, 5);
-  const active = has("active") ? b.active === true : cur.active;
-  if (workEnd <= workStart) throw new HttpError(400, "La hora de cierre debe ser después de la de inicio.");
-
-  const { rows } = await query(
-    `UPDATE barbers SET display_name = $1, title = $2, bio = $3, specialties = $4,
-            work_days = $5, work_start = $6, work_end = $7, active = $8
-      WHERE id = $9 RETURNING *`,
-    [displayName, title, bio, specialties, workDays, workStart, workEnd, active, id]
-  );
-  res.json({ barber: { ...publicBarber(rows[0]), active: rows[0].active } });
+  res.json(await new ActualizarBarbero().ejecutar(int(req.params.id, "El barbero"), req.body));
 }));
 
 module.exports = router;

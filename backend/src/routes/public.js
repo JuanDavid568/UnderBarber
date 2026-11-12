@@ -6,7 +6,7 @@ const { config } = require("../config");
 const { optionalAuth } = require("../middleware/auth");
 const { scoreQuiz } = require("../services/quiz");
 const { generateSlots, isValidDate, shopDateOf, dayBounds } = require("../services/slots");
-const { HttpError, wrap, int, publicBarber, publicService } = require("../util");
+const { HttpError, wrap, int, publicBarber, publicService, conCache } = require("../util");
 
 const router = express.Router();
 
@@ -20,14 +20,17 @@ const quizLimiter = rateLimit({
 
 const ACTIVE_BARBERS_SQL = "SELECT * FROM barbers WHERE active ORDER BY position, id";
 
+// PATRÓN Proxy: estas dos funciones tienen la misma interfaz que consultar la base de datos, pero reutilizan el
+// resultado 30 s (conCache, en util.js). Cuando el admin o un barbero editan datos, el caché se limpia solo.
+const barberosActivos = conCache(async () => (await query(ACTIVE_BARBERS_SQL)).rows);
+const serviciosActivos = conCache(async () => (await query("SELECT * FROM services WHERE active ORDER BY position, id")).rows);
+
 router.get("/barbers", wrap(async (_req, res) => {
-  const { rows } = await query(ACTIVE_BARBERS_SQL);
-  res.json({ barbers: rows.map(publicBarber) });
+  res.json({ barbers: (await barberosActivos()).map(publicBarber) });
 }));
 
 router.get("/services", wrap(async (_req, res) => {
-  const { rows } = await query("SELECT * FROM services WHERE active ORDER BY position, id");
-  res.json({ services: rows.map(publicService) });
+  res.json({ services: (await serviciosActivos()).map(publicService) });
 }));
 
 // --- Cuestionario ---------------------------------------------------------------
@@ -76,8 +79,7 @@ router.get("/quiz", wrap(async (_req, res) => {
 
 router.post("/quiz/submit", quizLimiter, optionalAuth, wrap(async (req, res) => {
   const answers = (req.body || {}).answers;
-  const [questions, barberRows] = await Promise.all([loadQuiz(), query(ACTIVE_BARBERS_SQL)]);
-  const barbers = barberRows.rows;
+  const [questions, barbers] = await Promise.all([loadQuiz(), barberosActivos()]);
 
   const result = scoreQuiz(questions, barbers, answers);
   if (result.error) throw new HttpError(400, result.error);

@@ -63,3 +63,28 @@ test("rechaza respuestas incompletas, repetidas o ajenas", () => {
   assert.match(scoreQuiz(questions, barbers, [{ questionId: 99, optionId: 1 }]).error, /no existe/);
   assert.match(scoreQuiz(questions, barbers, "x").error, /no son válidas/);
 });
+
+// ---- Patrón Strategy: el criterio de desempate se puede cambiar sin tocar scoreQuiz ----------------
+const { ESTRATEGIAS_DESEMPATE } = require("../src/services/quiz");
+
+test("Strategy: por defecto usa puntosPrimero y se puede cambiar por compatibilidadPrimero", () => {
+  // Barbero 1 tiene más puntos pero un máximo posible mayor (menor %); barbero 2 tiene menos puntos y mayor %.
+  const qs = [
+    { id: 1, text: "A", options: [{ id: 11, label: "x", points: { 1: 4, 2: 3 } }, { id: 12, label: "y", points: { 1: 10 } }] },
+    { id: 2, text: "B", options: [{ id: 21, label: "z", points: { 1: 0, 2: 3 } }] },
+  ];
+  const bs = [{ id: 1 }, { id: 2 }];
+  const answers = [{ questionId: 1, optionId: 11 }, { questionId: 2, optionId: 21 }];
+  const porPuntos = scoreQuiz(qs, bs, answers);
+  const porCompat = scoreQuiz(qs, bs, answers, ESTRATEGIAS_DESEMPATE.compatibilidadPrimero);
+  assert.equal(porPuntos.winnerId, 2); // 6 puntos (2) contra 4 (1)
+  assert.equal(porCompat.winnerId, 2);
+  assert.deepEqual(scoreQuiz(qs, bs, answers).ranking, scoreQuiz(qs, bs, answers, ESTRATEGIAS_DESEMPATE.puntosPrimero).ranking);
+});
+
+test("Strategy: las dos estrategias pueden dar un orden distinto", () => {
+  const a = { score: 6, percent: 50, index: 0 };
+  const b = { score: 5, percent: 90, index: 1 };
+  assert.ok(ESTRATEGIAS_DESEMPATE.puntosPrimero(a, b) < 0); // gana a (más puntos)
+  assert.ok(ESTRATEGIAS_DESEMPATE.compatibilidadPrimero(a, b) > 0); // gana b (mayor %)
+});

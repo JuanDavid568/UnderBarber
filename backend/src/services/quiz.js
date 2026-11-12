@@ -1,13 +1,23 @@
 "use strict";
 // Lógica pura del cuestionario (sin base de datos ni Express): fácil de probar.
 
+// PATRÓN Strategy (comportamiento): el criterio de desempate es intercambiable. scoreQuiz recibe la estrategia
+// como parámetro y no sabe cuál es; por defecto se usa «puntosPrimero» (el comportamiento original).
+const ESTRATEGIAS_DESEMPATE = {
+  // más puntos primero; si empatan, mayor compatibilidad; si siguen empatados, el de menor posición
+  puntosPrimero: (a, b) => b.score - a.score || b.percent - a.percent || a.index - b.index,
+  // mayor compatibilidad primero; si empatan, más puntos; luego menor posición
+  compatibilidadPrimero: (a, b) => b.percent - a.percent || b.score - a.score || a.index - b.index,
+};
+
 /**
  * @param {Array<{id:number,text:string,options:Array<{id:number,label:string,points:Object<number,number>}>}>} questions
  * @param {Array<{id:number}>} barbers  barberos activos, en orden de posición
  * @param {Array<{questionId:number,optionId:number}>} answers
+ * @param {(a:object,b:object)=>number} [estrategia] criterio de orden del ranking (ver ESTRATEGIAS_DESEMPATE)
  * @returns {{error:string}|{scores,maxScores,ranking,winnerId,runnerUpId,reasons}}
  */
-function scoreQuiz(questions, barbers, answers) {
+function scoreQuiz(questions, barbers, answers, estrategia = ESTRATEGIAS_DESEMPATE.puntosPrimero) {
   if (!Array.isArray(answers)) return { error: "Las respuestas no son válidas." };
   if (!barbers.length) return { error: "No hay barberos disponibles." };
 
@@ -49,8 +59,7 @@ function scoreQuiz(questions, barbers, answers) {
         index,
       };
     })
-    // más puntos primero; si empatan, mayor compatibilidad; si siguen empatados, el de menor posición
-    .sort((a, b) => b.score - a.score || b.percent - a.percent || a.index - b.index)
+    .sort(estrategia)
     .map(({ index, ...rest }) => rest);
 
   const winnerId = ranking[0].barberId;
@@ -70,4 +79,4 @@ function scoreQuiz(questions, barbers, answers) {
   return { scores, maxScores, ranking, winnerId, runnerUpId, reasons };
 }
 
-module.exports = { scoreQuiz };
+module.exports = { scoreQuiz, ESTRATEGIAS_DESEMPATE };
