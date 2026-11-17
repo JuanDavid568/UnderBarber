@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS users (
   role          VARCHAR(10)   NOT NULL DEFAULT 'client' CHECK (role IN ('client', 'barber', 'admin')),
   created_at    TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
+-- Fecha en que la persona autorizó el tratamiento de sus datos (Ley 1581 de 2012). Idempotente: sirve también si la tabla ya existía.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS data_consent_at TIMESTAMPTZ;
 -- Correo único sin distinguir mayúsculas
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users (lower(email));
 
@@ -85,5 +87,45 @@ CREATE TABLE IF NOT EXISTS quiz_results (
   barber_id  INTEGER NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
   answers    JSONB   NOT NULL,
   scores     JSONB   NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Reprogramación: cuándo se movió la cita por última vez -----------------------------
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS rescheduled_at TIMESTAMPTZ;
+
+-- Reseñas: una calificación por cita completada --------------------------------------
+CREATE TABLE IF NOT EXISTS reviews (
+  id             SERIAL PRIMARY KEY,
+  appointment_id INTEGER  NOT NULL UNIQUE REFERENCES appointments(id) ON DELETE CASCADE,
+  client_id      INTEGER  NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+  barber_id      INTEGER  NOT NULL REFERENCES barbers(id)  ON DELETE CASCADE,
+  service_id     INTEGER  NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+  rating         SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment        VARCHAR(300) NOT NULL DEFAULT '',
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS reviews_barber  ON reviews (barber_id);
+CREATE INDEX IF NOT EXISTS reviews_service ON reviews (service_id);
+
+-- Bloqueos de horario (vacaciones, festivos, permisos). barber_id NULL = toda la barbería -----
+CREATE TABLE IF NOT EXISTS time_blocks (
+  id         SERIAL PRIMARY KEY,
+  barber_id  INTEGER REFERENCES barbers(id) ON DELETE CASCADE,
+  starts_at  TIMESTAMPTZ NOT NULL,
+  ends_at    TIMESTAMPTZ NOT NULL,
+  reason     VARCHAR(120) NOT NULL DEFAULT '',
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (ends_at > starts_at)
+);
+CREATE INDEX IF NOT EXISTS time_blocks_range ON time_blocks (starts_at, ends_at);
+
+-- Recuperar contraseña: solo se guarda el hash del token, nunca el token ----------------------
+CREATE TABLE IF NOT EXISTS password_resets (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -156,7 +156,7 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; color: var(
 @media (max-width: 760px) { .menu-board { grid-template-columns: 1fr; } }
 
 /* ---------- Equipo ---------- */
-.team { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.team { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
 .barber { padding: 0 clamp(1rem, 2.5vw, 2.25rem); }
 .barber:first-child { padding-left: 0; }
 .barber + .barber { border-left: 1px solid var(--line); }
@@ -307,7 +307,7 @@ dialog h2 { font-size: 2rem; }
 .empty p { margin-bottom: 1rem; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 1rem; }
 .stat { background: var(--ink); padding: 1.1rem 1.25rem; display: flex; flex-direction: column; }
-.stat strong { font-family: var(--display); font-size: 2.6rem; line-height: 1; color: var(--brass-hi); }
+.stat strong { font-family: var(--display); font-size: clamp(1.7rem, 2.2vw, 2.6rem); line-height: 1; color: var(--brass-hi); white-space: nowrap; }
 .stat span { color: var(--smoke); font-size: .92rem; }
 .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 2rem; }
 .kv { display: flex; justify-content: space-between; align-items: center; max-width: 18rem; }
@@ -323,12 +323,46 @@ th { color: var(--smoke); font-weight: 600; font-size: .92rem; }
 .edit-barber { margin-bottom: 2.5rem; }
 .edit-barber h3 { margin-bottom: 0; }
 
+/* ---------- Dashboard del administrador ---------- */
+.dash-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1.5rem; margin-bottom: 1rem; }
+.dash-head p { margin: 0; }
+.period { display: flex; gap: .5rem; }
+.period .btn[aria-pressed="true"] { cursor: default; }
+.chart { display: block; width: 100%; max-width: 46rem; height: auto; margin: .5rem 0 2rem; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-bar { fill: var(--brass); }
+.chart-bar:hover { fill: var(--brass-hi); }
+.chart-axis { fill: var(--smoke); font: 13px var(--body); }
+.chart-value { fill: var(--bone); font: 600 13px var(--body); }
+.bars-rich li { grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr) auto auto; }
+.bars-rich strong { min-width: 1.5rem; text-align: right; }
+.bars-rich .muted { font-size: .85rem; min-width: 5.5rem; text-align: right; }
+@media (max-width: 640px) {
+  .bars-rich li { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .bars-rich .bar { grid-column: 1 / -1; grid-row: 2; }
+}
+
 /* ---------- Aviso ---------- */
 .toast {
   position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%); z-index: 50;
   background: var(--bone); color: var(--ink); padding: .8rem 1.3rem; border-radius: var(--radius); font-weight: 600;
   max-width: calc(100vw - 2rem); box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
 }
+
+/* ---------- Cuadro de aviso (bienvenida / sesión cerrada) ---------- */
+.notice {
+  position: fixed; inset: 5rem 1rem auto auto; margin: 0; z-index: 60;
+  width: min(20rem, calc(100vw - 2rem)); padding: 1rem 1.25rem;
+  background: var(--ink-2); color: var(--bone); border: 1px solid #4a433c; border-left: 4px solid var(--brass);
+  border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
+}
+.notice-title { display: block; font-family: var(--display); font-size: 1.35rem; color: var(--brass-hi); }
+.notice-text { margin: .35rem 0 .6rem; }
+.notice .link { background: none; border: 0; padding: 0; color: var(--smoke); cursor: pointer; font: 500 .9rem var(--body); text-decoration: underline; }
+
+/* ---------- Casilla de datos personales ---------- */
+.form label.consent { display: grid; grid-template-columns: auto 1fr; gap: .7rem; align-items: start; font-size: .88rem; line-height: 1.45; }
+.consent input { width: 1.15rem; height: 1.15rem; margin-top: .15rem; accent-color: var(--brass); }
 
 /* ---------- Portada ---------- */
 /* Para usar tu propia foto: guárdala como frontend/img/portada.jpg (se coloca debajo de un velo oscuro). */
@@ -358,11 +392,62 @@ html:not(.no-cover), html:not(.no-cover) body { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .cover { transition: none; } }
 
 /* ---------- Fotos de los barberos ---------- */
-.barber-photo { margin: 0 0 1.25rem; aspect-ratio: 4 / 5; overflow: hidden; background: var(--ink-2); border-bottom: 3px solid var(--brass); }
-.barber-photo img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+/* Todas las fotos: mismo tamaño (4:5) y fondo negro. «contain» no recorta; si una foto no es 4:5, el resto queda negro. */
+.barber-photo { margin: 0 0 1.25rem; aspect-ratio: 4 / 5; overflow: hidden; background: #000; border-bottom: 3px solid var(--brass); }
+.barber-photo img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: 50% 50%; }
 .barber-photo .emblem { display: grid; place-items: center; width: 100%; height: 100%; padding: 22%; }
-.barber-fade .barber-photo img { object-position: 50% 12%; }
-.barber-classic .barber-photo img { object-position: 50% 18%; }
-.barber-creative .barber-photo img { object-position: 50% 15%; }
-.barber .barber-photo { width: 100%; max-width: 20rem; }
+.barber .barber-photo { width: 19rem; max-width: 100%; } /* mismo tamaño en las tres tarjetas, más grandes */
 .result-side .barber-photo { max-width: 20rem; margin-bottom: 1.5rem; }
+
+/* ---- Reprogramar, reseñas, bloqueos, recuperar contraseña ---- */
+.rating { color: var(--gold, #d4a24c); font-weight: 600; white-space: nowrap; }
+.rating.small { font-size: .85em; margin-left: .35rem; }
+.barber-rating { margin: .1rem 0 .4rem; }
+.stars-input { display: flex; gap: .25rem; margin: .5rem 0; }
+.star { background: none; border: 0; cursor: pointer; font-size: 2rem; line-height: 1; color: var(--smoke, #777); padding: .1rem; }
+.star.on { color: var(--gold, #d4a24c); }
+.star:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+dialog.modal textarea, dialog.modal input[type=date], dialog.modal input[type=email], dialog.modal input[type=password] { width: 100%; }
+.date-field { display: grid; gap: .3rem; }
+.block-form .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.block-form .form-row[hidden], .block-form label[hidden] { display: none; }
+.inline-choice { border: 0; padding: 0; display: flex; gap: 1.25rem; flex-wrap: wrap; }
+.inline-check { display: inline-flex; align-items: center; gap: .4rem; }
+.block-list { list-style: none; padding: 0; display: grid; gap: .6rem; }
+.block-list li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .7rem .9rem; border: 1px solid rgba(255,255,255,.14); border-radius: .5rem; }
+.block-list li > div { display: grid; gap: .15rem; }
+.blocks { display: grid; gap: 1rem; margin-bottom: 2rem; }
+.forgot { margin: 0; text-align: center; }
+.link-btn { background: none; border: 0; color: var(--smoke, #aaa); text-decoration: underline; cursor: pointer; font: inherit; }
+dialog.modal h2 { padding-right: 4.5rem; font-size: 1.6rem; }
+
+/* ---- Logo ---- */
+.brand-logo { width: 44px; height: 44px; object-fit: contain; }
+.cover-logo { display: block; width: clamp(5.5rem, 14vw, 9rem); height: auto; margin-bottom: 1rem; }
+
+/* ---- Vitrina de barberos (portada) ---- */
+.showcase { width: min(100%, 27rem); justify-self: end; }
+.show-frame { position: relative; aspect-ratio: 4 / 5; background: #000; isolation: isolate; }
+.show-frame::before { content: ""; position: absolute; inset: 1rem -1rem -1rem 1rem; border: 2px solid var(--brass); z-index: -1; }
+.show-slide { position: absolute; inset: 0; margin: 0; overflow: hidden; clip-path: inset(100% 0 0 0); transition: clip-path .85s cubic-bezier(.65, 0, .25, 1); background: #000; }
+.show-slide.active { clip-path: inset(0); z-index: 1; }
+.show-slide img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.12); transition: transform 6s ease-out; }
+.show-slide.active img { transform: scale(1); }
+.show-slide figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 4rem 1.25rem 1.1rem; display: grid; gap: .1rem; background: linear-gradient(transparent, rgba(0, 0, 0, .88)); opacity: 0; transform: translateY(.8rem); transition: opacity .5s .45s, transform .5s .45s; }
+.show-slide.active figcaption { opacity: 1; transform: none; }
+.show-slide figcaption strong { font-family: var(--display); font-size: 2.1rem; text-transform: uppercase; line-height: 1; }
+.show-spec { color: var(--brass-hi); font-weight: 600; font-size: .85rem; letter-spacing: .12em; text-transform: uppercase; }
+.show-controls { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.75rem; }
+.show-dots { display: flex; gap: .5rem; }
+.show-dot { width: 2.6rem; padding: .7rem 0; background: none; border: 0; cursor: pointer; }
+.show-dot span { display: block; height: 4px; background: rgba(236, 228, 211, .25); position: relative; overflow: hidden; }
+.show-dot span::after { content: ""; position: absolute; inset: 0; background: var(--brass); transform: scaleX(0); transform-origin: left; }
+.show-dot.active span::after { animation: show-fill 5s linear forwards; }
+.showcase:hover .show-dot.active span::after, .showcase:focus-within .show-dot.active span::after { animation-play-state: paused; }
+.show-dot:focus-visible { outline: 2px solid var(--brass-hi); outline-offset: 2px; }
+@keyframes show-fill { to { transform: scaleX(1); } }
+@media (max-width: 760px) { .showcase { justify-self: center; width: min(100%, 22rem); margin-right: 1rem; } }
+@media (prefers-reduced-motion: reduce) {
+  .show-slide, .show-slide img, .show-slide figcaption { transition: none; }
+  .show-dot.active span::after { animation: none; transform: scaleX(1); }
+}

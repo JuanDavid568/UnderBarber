@@ -47,4 +47,25 @@ async function tx(fn) {
   }
 }
 
-module.exports = { pool, query, tx };
+/**
+ * Intervalos en los que un barbero NO se puede reservar entre `start` y `end`: sus citas activas y los bloqueos
+ * (propios o de toda la barbería). `run` es query o client.query. `excludeId` ignora una cita (al reprogramarla).
+ */
+async function busyIntervals(run, barberId, start, end, excludeId = null) {
+  const [appts, blocks] = await Promise.all([
+    run(
+      `SELECT starts_at, ends_at FROM appointments
+        WHERE barber_id = $1 AND status <> 'cancelled' AND starts_at < $3 AND ends_at > $2
+          AND ($4::int IS NULL OR id <> $4)`,
+      [barberId, start, end, excludeId]
+    ),
+    run(
+      `SELECT starts_at, ends_at FROM time_blocks
+        WHERE (barber_id = $1 OR barber_id IS NULL) AND starts_at < $3 AND ends_at > $2`,
+      [barberId, start, end]
+    ),
+  ]);
+  return [...appts.rows, ...blocks.rows].map((r) => ({ start: r.starts_at, end: r.ends_at }));
+}
+
+module.exports = { pool, query, tx, busyIntervals };

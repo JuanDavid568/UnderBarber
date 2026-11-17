@@ -109,6 +109,50 @@ export function barberPhoto(barber, cls = "") {
   return fig;
 }
 
+// Cuadro de aviso en la esquina (bienvenida, sesión cerrada…). No bloquea la página: se cierra solo o con «Cerrar».
+let noticeTimer;
+export function showNotice({ title, text }) {
+  let box = document.getElementById("notice");
+  if (!box) {
+    box = h("dialog", { id: "notice", class: "notice", role: "status" });
+    document.body.append(box);
+  }
+  clearTimeout(noticeTimer);
+  const close = () => box.close();
+  box.replaceChildren(
+    h("strong", { class: "notice-title" }, title),
+    h("p", { class: "notice-text" }, text),
+    h("button", { class: "link", type: "button", onclick: close }, "Cerrar")
+  );
+  if (!box.open) box.show(); // show() y no showModal(): no bloquea lo que el usuario esté haciendo
+  noticeTimer = setTimeout(close, 5000);
+}
+
+/** Ventana modal creada por código (reprogramar, calificar, recuperar contraseña…). Devuelve el <dialog> ya abierto. */
+export function openDialog(title, ...content) {
+  const dlg = h(
+    "dialog",
+    { class: "modal", "aria-label": title },
+    h("form", { method: "dialog", class: "dialog-close" }, h("button", { "aria-label": "Cerrar" }, "Cerrar")),
+    h("h2", {}, title),
+    ...content
+  );
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); }); // clic en el fondo
+  document.body.append(dlg);
+  dlg.showModal();
+  return dlg;
+}
+
+/** Estrellas como texto: 4 -> ★★★★☆ */
+export const starsText = (n) => "★".repeat(Math.round(n)) + "☆".repeat(5 - Math.round(n));
+
+/** «★ 4.8 (12 reseñas)» o «Aún sin reseñas». */
+export function ratingLine(avg, count) {
+  if (!count) return h("span", { class: "muted small" }, "Aún sin reseñas");
+  return h("span", { class: "rating" }, `★ ${Number(avg).toFixed(1)}`, h("span", { class: "muted small" }, ` (${count} ${count === 1 ? "reseña" : "reseñas"})`));
+}
+
 export function setBusy(button, busy, label) {
   if (busy) {
     button.dataset.label = button.textContent;

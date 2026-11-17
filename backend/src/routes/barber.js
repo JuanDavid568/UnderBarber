@@ -1,10 +1,10 @@
 "use strict";
 // Panel del barbero: su agenda, estados de citas y su perfil. El administrador también puede usarlo.
 const express = require("express");
-const { query } = require("../db");
+const { query, tx } = require("../db");
 const { config } = require("../config");
 const { requireRole } = require("../middleware/auth");
-const { isValidDate, shopDateOf, dayBounds } = require("../services/slots");
+const { isValidDate, shopDateOf, dayBounds, blockRange } = require("../services/slots");
 const {
   HttpError, wrap, int, str, time, weekdays, tags, publicBarber, shapeAppointment, APPOINTMENT_SELECT,
   EstadoCita, ActualizarRecurso, limpiarCachesPublicos, publicar,
@@ -80,6 +80,96 @@ router.get("/profile", wrap(async (req, res) => {
   const { rows } = await query("SELECT * FROM barbers WHERE id = $1", [barberId]);
   if (!rows[0]) throw new HttpError(404, "Ese barbero no existe.");
   res.json({ barber: publicBarber(rows[0]) });
+}));
+
+// --- Bloqueos de horario (vacaciones, festivos, permisos) ---------------------------------------------------------------
+const BARBER_LOCK = 1001; // el mismo candado que usa la reserva de citas
+
+router.get("/blocks", wrap(async (req, res) => {
+  const params = [];
+  let where = "WHERE k.ends_at > now()";
+  if (req.user.role === "barber") {
+    const mine = await query("SELECT id FROM barbers WHERE user_id = $1", [req.user.id]);
+    if (!mine.rows[0]) throw new HttpError(404, "Tu usuario no tiene un perfil de barbero.");
+    params.push(mine.rows[0].id);
+    where += " AND (k.barber_id = $1 OR k.barber_id IS NULL)"; // el barbero ve los suyos y los de toda la barbería
+  } else if (req.query.barberId !== undefined) {
+    params.push(int(req.query.barberId, "El barbero"));
+    where += " AND k.barber_id = $1";
+  }
+  const { rows } = await query(
+    `SELECT k.id, k.barber_id, k.starts_at, k.ends_at, k.reason, b.display_name AS barber_name
+       FROM time_blocks k LEFT JOIN barbers b ON b.id = k.barber_id
+       ${where} ORDER BY k.starts_at LIMIT 100`,
+    params
+  );
+  res.json({
+    blocks: rows.map((r) => ({
+      id: r.id, barberId: r.barber_id, barberName: r.barber_name, global: r.barber_id === null,
+      startsAt: r.starts_at, endsAt: r.ends_at, reason: r.reason,
+    })),
+  });
+}));
+
+router.post("/blocks", wrap(async (req, res) => {
+  const body = req.body || {};
+  // Barbero: siempre el suyo. Administrador: un barbero (barberId) o toda la barbería (barberId = "all")
+  let barberId;
+  if (req.user.role === "admin") {
+    if (body.barberId === undefined) throw new HttpError(400, "Indica el barbero o «toda la barbería».");
+    barberId = body.barberId === "all" || body.barberId === null ? null : int(body.barberId, "El barbero");
+  } else {
+    barberId = await resolveBarberId(req, { required: true });
+  }
+  const reason = str(body.reason, "El motivo", { max: 120, optional: true });
+  const range = blockRange(
+    { date: body.date, endDate: body.endDate, allDay: body.allDay === true, startTime: body.startTime, endTime: body.endTime },
+    config.shopUtcOffset
+  );
+  if (range.error) throw new HttpError(400, range.error);
+  const today = shopDateOf(new Date(), config.shopUtcOffset);
+  if (String(body.endDate || body.date) < today) throw new HttpError(400, "No puedes bloquear fechas que ya pasaron.");
+  if (range.end <= new Date()) throw new HttpError(400, "Ese horario ya pasó.");
+
+  const id = await tx(async (client) => {
+    // Se toma el candado de cada barbero afectado (en orden, para no bloquearse entre sí): así nadie reserva a la vez
+    const ids = barberId === null ? (await client.query("SELECT id FROM barbers ORDER BY id")).rows.map((r) => r.id) : [barberId];
+    for (const bid of ids) await client.query("SELECT pg_advisory_xact_lock($1, $2)", [BARBER_LOCK, bid]);
+    if (barberId !== null) {
+      const exists = await client.query("SELECT 1 FROM barbers WHERE id = $1", [barberId]);
+      if (!exists.rows[0]) throw new HttpError(404, "Ese barbero no existe.");
+    }
+    const clash = await client.query(
+      `SELECT count(*)::int AS n FROM appointments
+        WHERE status IN ('pending', 'confirmed') AND starts_at < $2 AND ends_at > $1
+          AND ($3::int IS NULL OR barber_id = $3)`,
+      [range.start, range.end, barberId]
+    );
+    if (clash.rows[0].n > 0) {
+      throw new HttpError(409, `Hay ${clash.rows[0].n} cita(s) agendada(s) en ese horario. Cancélalas o pídeles que las reprogramen antes de bloquearlo.`);
+    }
+    const ins = await client.query(
+      "INSERT INTO time_blocks (barber_id, starts_at, ends_at, reason, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+      [barberId, range.start, range.end, reason, req.user.id]
+    );
+    return ins.rows[0].id;
+  });
+  res.status(201).json({ ok: true, id });
+}));
+
+router.delete("/blocks/:id", wrap(async (req, res) => {
+  const id = int(req.params.id, "El bloqueo");
+  const params = [id];
+  let where = "WHERE id = $1";
+  if (req.user.role === "barber") {
+    const mine = await query("SELECT id FROM barbers WHERE user_id = $1", [req.user.id]);
+    if (!mine.rows[0]) throw new HttpError(404, "Tu usuario no tiene un perfil de barbero.");
+    params.push(mine.rows[0].id);
+    where += " AND barber_id = $2"; // un barbero no puede quitar los bloqueos de toda la barbería
+  }
+  const { rowCount } = await query(`DELETE FROM time_blocks ${where}`, params);
+  if (!rowCount) throw new HttpError(404, "No encontramos ese bloqueo.");
+  res.json({ ok: true });
 }));
 
 // PATRÓN Template Method: ActualizarRecurso (util.js) define el esqueleto cargar → validar → guardar → responder;

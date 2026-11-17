@@ -153,3 +153,98 @@ test("Observer: los eventos de citas llegan al notificador y un observador roto 
     console.error = log;
   }
 });
+
+// ======================= Estadísticas del dashboard =======================
+test("lastDates: devuelve los últimos N días terminando hoy", () => {
+  assert.deepEqual(S.lastDates("2030-03-02", 3), ["2030-02-28", "2030-03-01", "2030-03-02"]);
+});
+
+test("buildDashboard: cuenta por día, servicio, barbero, día de la semana y hora (hora de Bogotá)", () => {
+  const dates = S.lastDates("2030-01-08", 7); // 2030-01-02 … 2030-01-08
+  const rows = [
+    { starts_at: new Date("2030-01-07T15:00:00Z"), status: "completed", barber_id: 1, service_id: 10, price: 30000 }, // lun 10:00
+    { starts_at: new Date("2030-01-07T16:00:00Z"), status: "confirmed", barber_id: 1, service_id: 11, price: 20000 }, // lun 11:00
+    { starts_at: new Date("2030-01-08T04:00:00Z"), status: "pending", barber_id: 2, service_id: 10, price: 30000 },   // lun 23:00 (aún es 7 en Bogotá)
+    { starts_at: new Date("2030-01-07T17:00:00Z"), status: "cancelled", barber_id: 2, service_id: 10, price: 30000 }, // cancelada
+    { starts_at: new Date("2029-12-20T15:00:00Z"), status: "completed", barber_id: 1, service_id: 10, price: 30000 }, // fuera del periodo
+  ];
+  const d = S.buildDashboard({
+    rows,
+    dates,
+    services: [{ id: 10, name: "Fade", active: true }, { id: 11, name: "Barba", active: true }, { id: 12, name: "Viejo", active: false }],
+    barbers: [{ id: 1, display_name: "Santi", active: true }, { id: 2, display_name: "Andrés", active: true }],
+    offset: OFFSET,
+  });
+  assert.deepEqual(d.totals, { booked: 3, completed: 1, cancelled: 1, revenue: 30000, cancelRate: 25, avgTicket: 30000 });
+  assert.equal(d.byDay.find((x) => x.date === "2030-01-07").count, 3); // incluye la de las 23:00 de Bogotá
+  assert.equal(d.byDay.find((x) => x.date === "2030-01-08").count, 0);
+  assert.equal(d.byWeekday[0].count, 3); // lunes
+  assert.equal(d.byHour[10].count, 1);
+  assert.equal(d.byHour[23].count, 1);
+  assert.deepEqual(d.byService.map((x) => [x.name, x.count, x.revenue]), [["Fade", 2, 30000], ["Barba", 1, 0]]); // «Viejo» inactivo y sin citas no aparece
+  assert.deepEqual(d.byBarber.map((x) => [x.name, x.count]), [["Santi", 2], ["Andrés", 1]]);
+});
+
+test("buildDashboard: sin citas devuelve ceros sin dividir entre cero", () => {
+  const d = S.buildDashboard({ rows: [], dates: S.lastDates("2030-01-08", 7), services: [], barbers: [], offset: OFFSET });
+  assert.deepEqual(d.totals, { booked: 0, completed: 0, cancelled: 0, revenue: 0, cancelRate: 0, avgTicket: 0 });
+  assert.equal(d.byDay.length, 7);
+});
+
+// ======================= Bloqueos, calificaciones y tokens =======================
+test("blockRange: día completo, varios días y por horas (hora de Bogotá)", () => {
+  const dia = S.blockRange({ date: "2030-01-07", allDay: true }, OFFSET);
+  assert.equal(dia.start.toISOString(), "2030-01-07T05:00:00.000Z");
+  assert.equal(dia.end.toISOString(), "2030-01-08T05:00:00.000Z");
+  const varios = S.blockRange({ date: "2030-01-07", endDate: "2030-01-09", allDay: true }, OFFSET);
+  assert.equal(varios.end.toISOString(), "2030-01-10T05:00:00.000Z");
+  const horas = S.blockRange({ date: "2030-01-07", startTime: "10:00", endTime: "12:30" }, OFFSET);
+  assert.equal(horas.start.toISOString(), "2030-01-07T15:00:00.000Z");
+  assert.equal(horas.end.toISOString(), "2030-01-07T17:30:00.000Z");
+});
+
+test("blockRange: rechaza fechas, horas y rangos inválidos", () => {
+  assert.ok(S.blockRange({ date: "mañana", allDay: true }, OFFSET).error);
+  assert.ok(S.blockRange({ date: "2030-01-07", endDate: "2030-01-05", allDay: true }, OFFSET).error);
+  assert.ok(S.blockRange({ date: "2030-01-01", endDate: "2030-06-01", allDay: true }, OFFSET).error); // más de 60 días
+  assert.ok(S.blockRange({ date: "2030-01-07", startTime: "12:00", endTime: "10:00" }, OFFSET).error);
+  assert.ok(S.blockRange({ date: "2030-01-07", startTime: "25:00", endTime: "26:00" }, OFFSET).error);
+  assert.ok(S.blockRange({ date: "2030-01-07", endDate: "2030-01-08", startTime: "10:00", endTime: "12:00" }, OFFSET).error);
+});
+
+test("un bloqueo funciona como horario ocupado en generateSlots", () => {
+  const barber = { work_days: [1, 2, 3, 4, 5, 6], work_start: "09:00", work_end: "12:00" };
+  const bloque = S.blockRange({ date: "2030-01-07", startTime: "09:00", endTime: "10:30" }, OFFSET);
+  const base = { date: "2030-01-07", barber, durationMin: 30, now: new Date("2030-01-01T00:00:00Z"), offset: OFFSET };
+  const libres = S.generateSlots({ ...base, busy: [] }).map((x) => x.time);
+  const conBloqueo = S.generateSlots({ ...base, busy: [{ start: bloque.start, end: bloque.end }] }).map((x) => x.time);
+  assert.ok(libres.includes("09:00") && libres.includes("10:00"));
+  assert.deepEqual(conBloqueo.filter((t) => t < "10:30"), []); // nada antes de las 10:30
+  assert.ok(conBloqueo.includes("10:30"));
+});
+
+test("attachRatings: promedio y cantidad por barbero, null si no hay reseñas", () => {
+  const items = [{ id: 1, name: "A" }, { id: 2, name: "B" }];
+  const out = S.attachRatings(items, [{ barber_id: 1, rating: 5 }, { barber_id: 1, rating: 4 }, { barber_id: 1, rating: 4 }], "barber_id");
+  assert.deepEqual([out[0].ratingAvg, out[0].ratingCount], [4.3, 3]);
+  assert.deepEqual([out[1].ratingAvg, out[1].ratingCount], [null, 0]);
+});
+
+test("Token de recuperación: aleatorio, y su hash es estable y distinto del token", () => {
+  const { hashToken, nuevoTokenRestablecer, crearCorreo } = require("../src/util");
+  const a = nuevoTokenRestablecer();
+  const b = nuevoTokenRestablecer();
+  assert.notEqual(a.token, b.token);
+  assert.equal(a.hash, hashToken(a.token));
+  assert.equal(a.hash.length, 64);
+  assert.notEqual(a.hash, a.token);
+  assert.equal(typeof crearCorreo({ host: "" }).enviar, "function"); // sin SMTP: correo por consola
+  assert.equal(crearCorreo({ host: "smtp.x.com" }).constructor.name, "CorreoSmtp");
+});
+
+test("State: una cita pendiente o confirmada se puede reprogramar; las demás no", () => {
+  const { EstadoCita } = require("../src/util");
+  assert.ok(EstadoCita.de("pending").reprogramable && EstadoCita.de("confirmed").reprogramable);
+  assert.equal(EstadoCita.de("completed").reprogramable, false);
+  assert.equal(EstadoCita.de("cancelled").reprogramable, false);
+});

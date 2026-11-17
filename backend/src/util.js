@@ -2,6 +2,7 @@
 // Utilidades: errores HTTP, validaciones y formato.
 // Aquí también viven varios PATRONES DE DISEÑO (busca «PATRÓN»; la lista completa está en el README).
 const { EventEmitter } = require("events");
+const crypto = require("crypto");
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -88,6 +89,9 @@ function publicBarber(row) {
     workDays: row.work_days,
     workStart: hhmm(row.work_start),
     workEnd: hhmm(row.work_end),
+    // Calificación promedio (null si aún no tiene reseñas); solo viene en las consultas que la calculan
+    ratingAvg: row.rating_avg === undefined || row.rating_avg === null ? null : Number(row.rating_avg),
+    ratingCount: row.rating_count === undefined || row.rating_count === null ? 0 : Number(row.rating_count),
   };
 }
 
@@ -112,18 +116,22 @@ function shapeAppointment(r) {
     barber: { id: r.barber_id, name: r.barber_name },
     service: { id: r.service_id, name: r.service_name, price: r.price, durationMin: r.duration_min },
     client: r.client_name === undefined ? undefined : { name: r.client_name, phone: r.client_phone },
+    rescheduledAt: r.rescheduled_at || null,
+    review: r.review_rating ? { rating: r.review_rating, comment: r.review_comment } : null,
   };
 }
 
 /** Columnas comunes para listar citas con JOIN. */
 const APPOINTMENT_SELECT = `
-  SELECT a.id, a.starts_at, a.ends_at, a.status, a.notes, a.barber_id, a.service_id,
+  SELECT a.id, a.starts_at, a.ends_at, a.status, a.notes, a.barber_id, a.service_id, a.rescheduled_at,
          b.display_name AS barber_name, s.name AS service_name, s.price, s.duration_min,
-         u.name AS client_name, u.phone AS client_phone
+         u.name AS client_name, u.phone AS client_phone,
+         rv.rating AS review_rating, rv.comment AS review_comment
     FROM appointments a
     JOIN barbers  b ON b.id = a.barber_id
     JOIN services s ON s.id = a.service_id
-    JOIN users    u ON u.id = a.client_id`;
+    JOIN users    u ON u.id = a.client_id
+    LEFT JOIN reviews rv ON rv.appointment_id = a.id`;
 
 
 // ================================ PATRONES DE DISEÑO ================================
@@ -154,6 +162,8 @@ class EstadoCita {
   }
   puedePasarA(otro) { return this.siguientes.includes(otro); }
   get cancelable() { return this.puedePasarA("cancelled"); }
+  /** Solo se puede mover una cita que todavía está activa (pendiente o confirmada). */
+  get reprogramable() { return this.cancelable; }
   static de(nombre) {
     const estados = {
       pending: new EstadoCita("pending", ["confirmed", "cancelled"]),
@@ -265,9 +275,42 @@ function registrarObservadores(notificador) {
   bus.on("cita:creada", (c) => notificador.notificar(`Nueva cita #${c.id}: ${c.service.name} con ${c.barber.name}, ${hora(c.startsAt)}`));
   bus.on("cita:cancelada", (c) => notificador.notificar(`Cita #${c.id} cancelada por el cliente`));
   bus.on("cita:estado", (c) => notificador.notificar(`Cita #${c.id} ahora está «${c.status}»`));
+  bus.on("cita:reprogramada", (c) => notificador.notificar(`Cita #${c.id} reprogramada: ${c.service.name} con ${c.barber.name}, ${hora(c.startsAt)}`));
+  bus.on("resena:creada", (r) => notificador.notificar(`Nueva reseña de ${r.rating}/5 para el barbero #${r.barberId}`));
 }
 
+// ---- Recuperar contraseña: tokens y correo --------------------------------------------------------------------
+/** Genera un token aleatorio para el enlace; en la base de datos solo se guarda su hash SHA-256. */
+const hashToken = (token) => crypto.createHash("sha256").update(String(token)).digest("hex");
+function nuevoTokenRestablecer() {
+  const token = crypto.randomBytes(32).toString("base64url");
+  return { token, hash: hashToken(token) };
+}
+
+// PATRONES Factory Method + Adapter: crearCorreo() decide qué «remitente» usar (consola o SMTP) y ambos exponen
+// la misma interfaz enviar({ para, asunto, texto }). CorreoSmtp adapta la librería nodemailer a esa interfaz.
+class CorreoConsola {
+  async enviar({ para, asunto, texto }) {
+    console.log(`[correo] Para: ${para}\n[correo] Asunto: ${asunto}\n${texto}`);
+  }
+}
+class CorreoSmtp {
+  constructor(cfg) { this.cfg = cfg; }
+  async enviar({ para, asunto, texto }) {
+    if (!this.transporte) {
+      const nodemailer = require("nodemailer"); // se carga solo si hay SMTP configurado
+      this.transporte = nodemailer.createTransport({
+        host: this.cfg.host, port: this.cfg.port, secure: this.cfg.port === 465,
+        auth: this.cfg.user ? { user: this.cfg.user, pass: this.cfg.pass } : undefined,
+      });
+    }
+    await this.transporte.sendMail({ from: this.cfg.from, to: para, subject: asunto, text: texto });
+  }
+}
+const crearCorreo = (smtp) => (smtp && smtp.host ? new CorreoSmtp(smtp) : new CorreoConsola());
+
 module.exports = {
+  hashToken, nuevoTokenRestablecer, crearCorreo,
   CitaBuilder, EstadoCita, ManejadorReserva, ActualizarRecurso, conCache, limpiarCachesPublicos,
   FabricaNotificador, NotificadorMemoria, bus, publicar, registrarObservadores,
   HttpError, wrap, str, email, password, int, time, weekdays, tags, hhmm,

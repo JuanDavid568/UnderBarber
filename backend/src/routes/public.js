@@ -1,7 +1,7 @@
 "use strict";
 const express = require("express");
 const rateLimit = require("express-rate-limit");
-const { query } = require("../db");
+const { query, busyIntervals } = require("../db");
 const { config } = require("../config");
 const { optionalAuth } = require("../middleware/auth");
 const { scoreQuiz } = require("../services/quiz");
@@ -18,7 +18,12 @@ const quizLimiter = rateLimit({
   message: { error: "Demasiados intentos. Espera unos minutos e inténtalo de nuevo." },
 });
 
-const ACTIVE_BARBERS_SQL = "SELECT * FROM barbers WHERE active ORDER BY position, id";
+// Incluye la calificación promedio y el número de reseñas de cada barbero
+const ACTIVE_BARBERS_SQL = `
+  SELECT b.*,
+         (SELECT round(avg(r.rating)::numeric, 1) FROM reviews r WHERE r.barber_id = b.id) AS rating_avg,
+         (SELECT count(*)::int FROM reviews r WHERE r.barber_id = b.id) AS rating_count
+    FROM barbers b WHERE b.active ORDER BY b.position, b.id`;
 
 // PATRÓN Proxy: estas dos funciones tienen la misma interfaz que consultar la base de datos, pero reutilizan el
 // resultado 30 s (conCache, en util.js). Cuando el admin o un barbero editan datos, el caché se limpia solo.
@@ -130,16 +135,12 @@ router.get("/availability", wrap(async (req, res) => {
   if (!s.rows[0]) throw new HttpError(404, "Ese servicio no existe.");
 
   const { start, end } = dayBounds(date, config.shopUtcOffset);
-  const { rows } = await query(
-    `SELECT starts_at, ends_at FROM appointments
-      WHERE barber_id = $1 AND status <> 'cancelled' AND starts_at < $3 AND ends_at > $2`,
-    [barberId, start, end]
-  );
+  const busy = await busyIntervals(query, barberId, start, end); // citas + bloqueos de horario
   const slots = generateSlots({
     date,
     barber: b.rows[0],
     durationMin: s.rows[0].duration_min,
-    busy: rows.map((r) => ({ start: r.starts_at, end: r.ends_at })),
+    busy,
     now: new Date(),
     offset: config.shopUtcOffset,
     minLeadMinutes: config.minLeadMinutes,

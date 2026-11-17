@@ -1,9 +1,6 @@
 // Paneles: Mis citas (cliente), Mi agenda (barbero) y Administración (dueño)
 import { api } from "./api.js";
-import {
-  h, mount, formatPrice, formatTime, formatDay, formatShortDay, formatYmd, ymd, todayYmd, addDays,
-  statusBadge, STATUS_LABEL, DAY_NAMES, toast, setBusy,
-} from "./ui.js";
+import { h, mount, formatPrice, formatTime, formatDay, formatShortDay, formatYmd, ymd, todayYmd, addDays, statusBadge, STATUS_LABEL, DAY_NAMES, toast, setBusy, openDialog, starsText, ratingLine } from "./ui.js";
 
 const loading = () => h("p", { class: "muted", role: "status" }, "Cargando…");
 const failure = (err, retry) =>
@@ -65,14 +62,21 @@ export async function renderAccount(panel, { user }) {
         body,
         h("h2", {}, "Próximas"),
         upcoming.length
-          ? h("ul", { class: "appt-list" }, upcoming.map((a) => apptItem(a, { onCancel: () => cancel(a) })))
+          ? h("ul", { class: "appt-list" }, upcoming.map((a) => apptItem(a, { onCancel: () => cancel(a), actions: rescheduleButton(a) })))
           : h("div", { class: "empty" }, h("p", {}, "No tienes citas próximas."), h("a", { class: "btn", href: "#reservar" }, "Reservar una cita")),
-        past.length > 0 && [h("h2", {}, "Historial"), h("ul", { class: "appt-list muted-list" }, past.map((a) => apptItem(a, {})))]
+        past.length > 0 && [h("h2", {}, "Historial"), h("ul", { class: "appt-list muted-list" }, past.map((a) => apptItem(a, { actions: reviewAction(a) })))]
       );
     } catch (err) {
       mount(body, failure(err, load));
     }
   }
+  const rescheduleButton = (a) =>
+    h("button", { class: "btn btn-small btn-ghost", type: "button", onclick: () => rescheduleDialog(a, load) }, "Reprogramar");
+  const reviewAction = (a) => {
+    if (a.status !== "completed") return null;
+    if (a.review) return h("span", { class: "rating", title: a.review.comment || "Tu calificación" }, starsText(a.review.rating));
+    return h("button", { class: "btn btn-small", type: "button", onclick: () => reviewDialog(a, load) }, "Calificar");
+  };
   async function cancel(a) {
     if (!window.confirm(`¿Cancelar tu cita del ${formatDay(a.startsAt)} a las ${formatTime(a.startsAt)}?`)) return;
     try {
@@ -85,6 +89,198 @@ export async function renderAccount(panel, { user }) {
   }
   mount(panel, pageHead(`Hola, ${user.name.split(" ")[0]}`, "Tus citas en UnderBarber."), body, passwordForm());
   load();
+}
+
+// ---------------- Reprogramar y calificar (desde «Mis citas») ----------------
+function rescheduleDialog(appt, onDone) {
+  const state = { date: ymd(appt.startsAt) < todayYmd() ? todayYmd() : ymd(appt.startsAt), startsAt: null };
+  const slotsBox = h("div", { "aria-live": "polite" });
+  const error = h("p", { class: "form-error", role: "alert", hidden: true });
+  const submit = h("button", { class: "btn", type: "submit", disabled: true }, "Mover mi cita");
+
+  async function loadSlots() {
+    state.startsAt = null;
+    submit.disabled = true;
+    mount(slotsBox, h("p", { class: "muted" }, "Buscando horarios…"));
+    try {
+      const res = await api.get(`/availability?barberId=${appt.barber.id}&serviceId=${appt.service.id}&date=${state.date}`);
+      const draw = () =>
+        mount(
+          slotsBox,
+          res.slots.length
+            ? [
+                h("p", { class: "muted small" }, `Horarios libres · ${formatYmd(state.date)}`),
+                h("div", { class: "slots", role: "radiogroup", "aria-label": "Horarios disponibles" },
+                  res.slots.map((s) =>
+                    h("button", {
+                      type: "button", class: "slot", role: "radio", "aria-checked": String(state.startsAt === s.startsAt),
+                      onclick: () => { state.startsAt = s.startsAt; submit.disabled = false; draw(); },
+                    }, formatTime(s.startsAt))
+                  )),
+              ]
+            : h("p", { class: "muted" }, `No hay horarios libres el ${formatYmd(state.date)}. Prueba otro día.`)
+        );
+      draw();
+    } catch (err) {
+      mount(slotsBox, h("p", { class: "form-error" }, err.message));
+    }
+  }
+
+  const dlg = openDialog(
+    "Reprogramar cita",
+    h("p", { class: "muted" }, `${appt.service.name} con ${appt.barber.name}. Ahora: ${formatDay(appt.startsAt)} a las ${formatTime(appt.startsAt)}`),
+    h("form", { class: "form", novalidate: true,
+        onsubmit: async (e) => {
+          e.preventDefault();
+          if (!state.startsAt) return;
+          error.hidden = true;
+          setBusy(submit, true, "Moviendo…");
+          try {
+            await api.patch(`/appointments/${appt.id}/reschedule`, { startsAt: state.startsAt });
+            dlg.close();
+            toast("Cita reprogramada. El barbero la confirmará de nuevo.");
+            onDone();
+          } catch (err) {
+            error.textContent = err.message;
+            error.hidden = false;
+            setBusy(submit, false);
+            loadSlots();
+          }
+        } },
+      h("label", { class: "date-field" }, "Nueva fecha",
+        h("input", { type: "date", value: state.date, min: todayYmd(), max: addDays(todayYmd(), 60), required: true,
+          onchange: (e) => { if (e.target.value) { state.date = e.target.value; loadSlots(); } } })),
+      slotsBox,
+      h("p", { class: "muted small" }, "Al moverla, tu cita vuelve a quedar pendiente de confirmación."),
+      error,
+      submit)
+  );
+  loadSlots();
+}
+
+function reviewDialog(appt, onDone) {
+  let rating = 0;
+  const error = h("p", { class: "form-error", role: "alert", hidden: true });
+  const stars = h("div", { class: "stars-input", role: "group", "aria-label": "Calificación" });
+  const paint = () =>
+    mount(stars, [1, 2, 3, 4, 5].map((n) =>
+      h("button", { type: "button", class: `star ${n <= rating ? "on" : ""}`.trim(), "aria-label": `${n} ${n === 1 ? "estrella" : "estrellas"}`,
+        "aria-pressed": String(n === rating), onclick: () => { rating = n; paint(); } }, "★")));
+  paint();
+  const comment = h("textarea", { maxlength: "300", rows: "3", placeholder: "Cuéntanos cómo te fue (opcional)" });
+  const submit = h("button", { class: "btn", type: "submit" }, "Enviar calificación");
+  const dlg = openDialog(
+    "Califica tu cita",
+    h("p", { class: "muted" }, `${appt.service.name} con ${appt.barber.name}, ${formatDay(appt.startsAt)}.`),
+    h("form", { class: "form", novalidate: true,
+        onsubmit: async (e) => {
+          e.preventDefault();
+          if (!rating) { error.textContent = "Elige de 1 a 5 estrellas."; error.hidden = false; return; }
+          error.hidden = true;
+          setBusy(submit, true, "Enviando…");
+          try {
+            await api.post(`/appointments/${appt.id}/review`, { rating, comment: comment.value });
+            dlg.close();
+            toast("¡Gracias por tu calificación!");
+            onDone();
+          } catch (err) {
+            error.textContent = err.message;
+            error.hidden = false;
+            setBusy(submit, false);
+          }
+        } },
+      stars, h("label", {}, "Comentario", comment), error, submit)
+  );
+}
+
+// ---------------- Bloqueos de horario (barbero y administrador) ----------------
+const hm = (d) => new Intl.DateTimeFormat("en-GB", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(d));
+
+function describeBlock(b) {
+  const start = new Date(b.startsAt), end = new Date(b.endsAt);
+  const allDay = hm(start) === "00:00" && (end - start) % 86400000 === 0;
+  if (!allDay) return `${formatYmd(ymd(start))}, de ${hm(start)} a ${hm(end)}`;
+  const last = ymd(new Date(end.getTime() - 1));
+  return ymd(start) === last ? `${formatYmd(ymd(start))} (todo el día)` : `${formatYmd(ymd(start))} al ${formatYmd(last)} (todo el día)`;
+}
+
+/** Formulario + lista de bloqueos. Si `barbers` viene (administrador) se puede elegir barbero o toda la barbería. */
+function blocksSection({ barbers } = {}) {
+  const list = h("div", { "aria-live": "polite" });
+  const error = h("p", { class: "form-error", role: "alert", hidden: true });
+  const submit = h("button", { class: "btn", type: "submit" }, "Bloquear");
+  const mode = { allDay: true };
+
+  const barberSelect = barbers && h("select", { name: "barberId", required: true },
+    h("option", { value: "all" }, "Toda la barbería"),
+    barbers.map((b) => h("option", { value: String(b.id) }, b.name)));
+  const date = h("input", { type: "date", name: "date", value: todayYmd(), min: todayYmd(), required: true });
+  const endDate = h("input", { type: "date", name: "endDate", min: todayYmd() });
+  const start = h("input", { type: "time", name: "startTime", value: "09:00" });
+  const end = h("input", { type: "time", name: "endTime", value: "12:00" });
+  const reason = h("input", { type: "text", name: "reason", maxlength: "120", placeholder: "Ej. vacaciones, festivo, cita médica" });
+  const timesRow = h("div", { class: "form-row", hidden: true }, h("label", {}, "Desde", start), h("label", {}, "Hasta", end));
+  const endRow = h("label", {}, "Hasta el día ", h("span", { class: "muted" }, "(opcional, para varios días)"), endDate);
+  const setMode = (allDay) => { mode.allDay = allDay; timesRow.hidden = allDay; endRow.hidden = !allDay; };
+
+  async function load() {
+    mount(list, h("p", { class: "muted" }, "Cargando…"));
+    try {
+      const { blocks } = await api.get("/barber/blocks");
+      mount(list, blocks.length
+        ? h("ul", { class: "plain block-list" }, blocks.map((b) =>
+            h("li", {},
+              h("div", {}, h("strong", {}, describeBlock(b)),
+                h("span", { class: "muted small" }, [b.global ? "Toda la barbería" : barbers ? b.barberName : null, b.reason].filter(Boolean).join(" · "))),
+              (barbers || !b.global) && h("button", { class: "btn btn-small btn-ghost", type: "button", onclick: () => remove(b) }, "Quitar"))))
+        : h("p", { class: "muted" }, "No hay bloqueos próximos."));
+    } catch (err) {
+      mount(list, h("p", { class: "form-error" }, err.message));
+    }
+  }
+  async function remove(b) {
+    if (!window.confirm("¿Quitar este bloqueo? Esas horas volverán a poder reservarse.")) return;
+    try { await api.del(`/barber/blocks/${b.id}`); toast("Bloqueo quitado"); load(); } catch (err) { toast(err.message); }
+  }
+
+  const form = h("form", { class: "form block-form", novalidate: true,
+      onsubmit: async (e) => {
+        e.preventDefault();
+        error.hidden = true;
+        const body = { date: date.value, allDay: mode.allDay, reason: reason.value };
+        if (barberSelect) body.barberId = barberSelect.value;
+        if (mode.allDay) { if (endDate.value) body.endDate = endDate.value; } else { body.startTime = start.value; body.endTime = end.value; }
+        setBusy(submit, true, "Bloqueando…");
+        try {
+          await api.post("/barber/blocks", body);
+          toast("Horario bloqueado");
+          reason.value = ""; endDate.value = "";
+          load();
+        } catch (err) { error.textContent = err.message; error.hidden = false; }
+        setBusy(submit, false);
+      } },
+    barberSelect && h("label", {}, "Barbero", barberSelect),
+    h("fieldset", { class: "inline-choice" }, h("legend", {}, "¿Qué bloquear?"),
+      h("label", { class: "inline-check" }, h("input", { type: "radio", name: "blk-mode", checked: true, onchange: () => setMode(true) }), "Días completos"),
+      h("label", { class: "inline-check" }, h("input", { type: "radio", name: "blk-mode", onchange: () => setMode(false) }), "Solo unas horas")),
+    h("label", {}, "Día", date), endRow, timesRow,
+    h("label", {}, "Motivo ", h("span", { class: "muted" }, "(opcional)"), reason),
+    error, submit);
+
+  const box = h("section", { class: "blocks" },
+    h("p", { class: "muted" }, "Las horas bloqueadas dejan de aparecer para reservar. Si ya hay citas en ese horario, primero cancélalas o pide que las reprogramen."),
+    form, h("h3", {}, "Bloqueos próximos"), list);
+  load();
+  return box;
+}
+
+async function adminBlocks(box) {
+  try {
+    const { barbers } = await api.get("/barbers");
+    mount(box, blocksSection({ barbers }));
+  } catch (err) {
+    mount(box, failure(err, () => adminBlocks(box)));
+  }
 }
 
 function apptItem(a, { onCancel, actions, showClient } = {}) {
@@ -184,6 +380,8 @@ export async function renderBarber(panel, { user }) {
     pageHead(`Agenda de ${user.name.split(" ")[0]}`, "Confirma, completa o cancela las citas de tus clientes."),
     toolbar,
     agenda,
+    h("h2", {}, "Bloquear horarios"),
+    blocksSection(),
     h("h2", {}, "Mi perfil"),
     profileBox,
     passwordForm()
@@ -261,7 +459,9 @@ export async function renderAdmin(panel) {
   const content = h("div", {});
   const tabs = [
     ["Resumen", adminStats],
+    ["Dashboard", adminDashboard],
     ["Citas", adminAppointments],
+    ["Bloqueos", adminBlocks],
     ["Servicios", adminServices],
     ["Barberos", adminBarbers],
   ];
@@ -305,6 +505,112 @@ async function adminStats(box) {
     );
   } catch (err) {
     mount(box, failure(err, () => adminStats(box)));
+  }
+}
+
+// ---------------- Dashboard: estadísticas con gráficas (SVG dibujado a mano, sin librerías) ----------------
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs = {}, ...kids) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+  for (const kid of kids) node.append(kid);
+  return node;
+}
+
+/** Paso «bonito» para el eje vertical: 1, 2, 5, 10, 20, 50… con máximo ~4 líneas. */
+function niceStep(max) {
+  const raw = Math.max(1, max) / 4;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 5, 10].map((m) => m * pow).find((st) => st >= raw);
+}
+
+/** Gráfica de barras verticales. data: [{ label, value, tip }]. Cada barra lleva un <title> con su valor. */
+function barChart(data, { ariaLabel, labelEvery = 1, showValues = false }) {
+  const W = 560, H = 220, L = 34, R = 8, T = 16, B = 28;
+  const step = niceStep(Math.max(...data.map((d) => d.value)));
+  const top = Math.max(step, Math.ceil(Math.max(...data.map((d) => d.value)) / step) * step);
+  const plotW = W - L - R, plotH = H - T - B;
+  const slot = plotW / data.length;
+  const y = (v) => T + plotH - (v / top) * plotH;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": ariaLabel, preserveAspectRatio: "xMidYMid meet" });
+  for (let v = 0; v <= top; v += step) {
+    svg.append(svgEl("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "chart-grid" }));
+    svg.append(svgEl("text", { x: L - 6, y: y(v) + 4, class: "chart-axis", "text-anchor": "end" }, document.createTextNode(String(v))));
+  }
+  data.forEach((d, i) => {
+    const bw = Math.max(2, slot * 0.68);
+    const x = L + i * slot + (slot - bw) / 2;
+    const bar = svgEl("rect", { x, y: y(d.value), width: bw, height: Math.max(0, plotH - (y(d.value) - T)), class: "chart-bar" }, svgEl("title", {}, document.createTextNode(d.tip || `${d.label}: ${d.value}`)));
+    svg.append(bar);
+    if (showValues && d.value > 0) svg.append(svgEl("text", { x: x + bw / 2, y: y(d.value) - 4, class: "chart-value", "text-anchor": "middle" }, document.createTextNode(String(d.value))));
+    if (i % labelEvery === 0) svg.append(svgEl("text", { x: x + bw / 2, y: H - 8, class: "chart-axis", "text-anchor": "middle" }, document.createTextNode(d.label)));
+  });
+  return svg;
+}
+
+/** Lista con barras horizontales: nombre, barra, cantidad e ingresos. */
+function rankList(items, unit) {
+  const max = Math.max(1, ...items.map((i) => i.count));
+  return h("ul", { class: "plain bars bars-rich" }, items.map((i) =>
+    h("li", {},
+      h("span", {}, i.name, i.ratingCount > 0 && h("span", { class: "rating small" }, ` ★ ${i.ratingAvg.toFixed(1)}`)),
+      h("span", { class: "bar" }, h("span", { class: "bar-fill", style: { "--p": `${(i.count / max) * 100}%` } })),
+      h("strong", { title: unit }, i.count),
+      h("span", { class: "muted" }, formatPrice(i.revenue))
+    )
+  ));
+}
+
+async function adminDashboard(box, days = 30) {
+  try {
+    const d = await api.get(`/admin/dashboard?days=${days}`);
+    const tile = (label, value) => h("div", { class: "stat" }, h("strong", {}, value), h("span", {}, label));
+    const period = h("div", { class: "period", role: "group", "aria-label": "Periodo" },
+      [7, 30, 90].map((n) => h("button", {
+        class: `btn btn-small ${n === days ? "" : "btn-ghost"}`.trim(), type: "button", "aria-pressed": String(n === days),
+        onclick: () => { mount(box, loading()); adminDashboard(box, n); },
+      }, `${n} días`)));
+    const empty = d.totals.booked + d.totals.cancelled === 0;
+
+    // Horas: solo el rango con citas (±1 hora) para que la gráfica no quede llena de ceros
+    const used = d.byHour.filter((x) => x.count > 0).map((x) => x.hour);
+    const h0 = used.length ? Math.max(0, Math.min(...used) - 1) : 8;
+    const h1 = used.length ? Math.min(23, Math.max(...used) + 1) : 19;
+    const hours = d.byHour.filter((x) => x.hour >= h0 && x.hour <= h1);
+    const every = d.byDay.length > 40 ? 15 : d.byDay.length > 10 ? 5 : 1;
+
+    mount(
+      box,
+      h("div", { class: "dash-head" },
+        h("p", { class: "muted" }, `Del ${formatYmd(d.range.from)} al ${formatYmd(d.range.to)}. Las citas canceladas no se cuentan como agendadas.`),
+        period),
+      h("div", { class: "stats" },
+        tile("Citas agendadas", d.totals.booked),
+        tile("Completadas", d.totals.completed),
+        tile(`Canceladas (${d.totals.cancelRate}%)`, d.totals.cancelled),
+        tile("Ingresos (completadas)", formatPrice(d.totals.revenue)),
+        tile("Ticket promedio", formatPrice(d.totals.avgTicket)),
+        tile(d.totals.ratingCount ? `Calificación (${d.totals.ratingCount} ${d.totals.ratingCount === 1 ? "reseña" : "reseñas"})` : "Calificación", d.totals.ratingCount ? `★ ${d.totals.ratingAvg.toFixed(1)}` : "—")
+      ),
+      empty
+        ? h("p", { class: "muted" }, "Todavía no hay citas en este periodo. Cuando los clientes reserven, aquí verás las gráficas.")
+        : h("div", {},
+            h("h2", {}, "Citas por día"),
+            barChart(d.byDay.map((x) => ({ label: x.date.slice(8) + "/" + x.date.slice(5, 7), value: x.count, tip: `${formatYmd(x.date)}: ${x.count} citas` })),
+              { ariaLabel: `Citas agendadas por día, últimos ${days} días`, labelEvery: every }),
+            h("div", { class: "two-col" },
+              h("div", {}, h("h2", {}, "Cortes y servicios más pedidos"), rankList(d.byService, "citas")),
+              h("div", {}, h("h2", {}, "Citas por barbero"), rankList(d.byBarber, "citas"))),
+            h("div", { class: "two-col" },
+              h("div", {}, h("h2", {}, "Día de la semana"),
+                barChart(d.byWeekday.map((x) => ({ label: DAY_NAMES[x.day].slice(0, 3), value: x.count, tip: `${DAY_NAMES[x.day]}: ${x.count} citas` })),
+                  { ariaLabel: "Citas agendadas por día de la semana", showValues: true })),
+              h("div", {}, h("h2", {}, "Horas con más citas"),
+                barChart(hours.map((x) => ({ label: `${x.hour}h`, value: x.count, tip: `${x.hour}:00 – ${x.hour}:59: ${x.count} citas` })),
+                  { ariaLabel: "Citas agendadas por hora del día", showValues: true }))))
+    );
+  } catch (err) {
+    mount(box, failure(err, () => adminDashboard(box, days)));
   }
 }
 

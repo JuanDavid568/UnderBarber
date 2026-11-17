@@ -4,7 +4,7 @@ const express = require("express");
 const { query } = require("../db");
 const { config } = require("../config");
 const { requireRole } = require("../middleware/auth");
-const { isValidDate, shopDateOf, dayBounds } = require("../services/slots");
+const { isValidDate, shopDateOf, dayBounds, lastDates, buildDashboard, attachRatings } = require("../services/slots");
 const {
   HttpError, wrap, int, str, time, weekdays, tags, publicBarber, publicService, shapeAppointment, APPOINTMENT_SELECT,
   ActualizarRecurso, limpiarCachesPublicos,
@@ -48,6 +48,39 @@ router.get("/stats", wrap(async (_req, res) => {
     quizByBarber: quizByBarber.rows,
     revenueCompleted: Number(revenue.rows[0].total), // estimado con el precio actual de cada servicio
   });
+}));
+
+// Dashboard: citas por día, por servicio, por barbero, por día de la semana y por hora, en un periodo de 7, 30 o 90 días.
+router.get("/dashboard", wrap(async (req, res) => {
+  const days = req.query.days === undefined ? 30 : int(req.query.days, "El periodo");
+  if (![7, 30, 90].includes(days)) throw new HttpError(400, "El periodo debe ser de 7, 30 o 90 días.");
+  const dates = lastDates(shopDateOf(new Date(), config.shopUtcOffset), days);
+  const from = dayBounds(dates[0], config.shopUtcOffset).start;
+  const to = dayBounds(dates[dates.length - 1], config.shopUtcOffset).end;
+  const [rows, services, barbers, reviews] = await Promise.all([
+    query(
+      `SELECT a.starts_at, a.status, a.barber_id, a.service_id, s.price
+         FROM appointments a JOIN services s ON s.id = a.service_id
+        WHERE a.starts_at >= $1 AND a.starts_at < $2
+        LIMIT 50000`,
+      [from, to]
+    ),
+    query("SELECT id, name, active FROM services"),
+    query("SELECT id, display_name, active FROM barbers"),
+    query(
+      `SELECT r.barber_id, r.service_id, r.rating
+         FROM reviews r JOIN appointments a ON a.id = r.appointment_id
+        WHERE a.starts_at >= $1 AND a.starts_at < $2`,
+      [from, to]
+    ),
+  ]);
+  const d = buildDashboard({ rows: rows.rows, dates, services: services.rows, barbers: barbers.rows, offset: config.shopUtcOffset });
+  d.byService = attachRatings(d.byService, reviews.rows, "service_id");
+  d.byBarber = attachRatings(d.byBarber, reviews.rows, "barber_id");
+  const all = reviews.rows.map((r) => Number(r.rating));
+  d.totals.ratingAvg = all.length ? Math.round((all.reduce((a, b) => a + b, 0) / all.length) * 10) / 10 : null;
+  d.totals.ratingCount = all.length;
+  res.json(d);
 }));
 
 router.get("/appointments", wrap(async (req, res) => {

@@ -1,6 +1,6 @@
 // Punto de entrada: navegación, sesión, datos públicos y módulos.
 import { api, session, setUnauthorizedHandler } from "./api.js";
-import { h, mount, $, $$, formatPrice, barberPhoto, DAY_NAMES, toast, setBusy } from "./ui.js";
+import { h, mount, $, $$, formatPrice, barberPhoto, DAY_NAMES, toast, showNotice, setBusy, openDialog, ratingLine } from "./ui.js";
 import { initQuiz } from "./quiz.js";
 import { initBooking, preselectBarber, refreshBooking } from "./booking.js";
 import { renderAccount, renderBarber, renderAdmin } from "./panels.js";
@@ -12,6 +12,8 @@ let afterLogin = null;
 let publicData = { barbers: [], services: [] };
 
 const currentUser = () => (session.get() ? session.get().user : null);
+const ROLE_LABEL = { client: "cliente", barber: "barbero", admin: "administrador" };
+const firstName = (user) => user.name.split(" ")[0];
 
 // ---------------- Cabecera ----------------
 function renderNavUser() {
@@ -29,11 +31,15 @@ function renderNavUser() {
 }
 
 function logout() {
+  const user = currentUser();
   session.set(null);
   renderNavUser();
   refreshBooking();
   location.hash = "#/";
-  toast("Sesión cerrada");
+  showNotice({
+    title: "Sesión cerrada",
+    text: user ? `Hasta pronto, ${firstName(user)}. Tu sesión se cerró correctamente.` : "Tu sesión se cerró correctamente.",
+  });
 }
 
 setUnauthorizedHandler(() => {
@@ -82,7 +88,14 @@ function authSubmit(formId, path, fields) {
     const err = $(".form-error", form);
     const btn = $("button[type=submit]", form);
     err.hidden = true;
-    const body = Object.fromEntries(fields.map((f) => [f, form.elements[f].value]));
+    const body = Object.fromEntries(
+      fields.map((f) => [f, form.elements[f].type === "checkbox" ? form.elements[f].checked : form.elements[f].value])
+    );
+    if (fields.includes("consent") && !body.consent) {
+      err.textContent = "Para crear la cuenta debes aceptar el tratamiento de tus datos personales.";
+      err.hidden = false;
+      return;
+    }
     setBusy(btn, true, "Un momento…");
     try {
       const res = await api.post(path, body);
@@ -91,7 +104,12 @@ function authSubmit(formId, path, fields) {
       authDialog.close();
       renderNavUser();
       refreshBooking();
-      toast(`Hola, ${res.user.name.split(" ")[0]}`);
+      showNotice({
+        title: `Bienvenido, ${firstName(res.user)}`,
+        text: path.endsWith("/register")
+          ? "Tu cuenta fue creada y ya iniciaste sesión."
+          : `Iniciaste sesión como ${ROLE_LABEL[res.user.role] || "usuario"}.`,
+      });
       const cb = afterLogin;
       afterLogin = null;
       if (cb) cb();
@@ -104,7 +122,7 @@ function authSubmit(formId, path, fields) {
   });
 }
 authSubmit("#form-login", "/auth/login", ["email", "password"]);
-authSubmit("#form-register", "/auth/register", ["name", "email", "phone", "password"]);
+authSubmit("#form-register", "/auth/register", ["name", "email", "phone", "password", "consent"]);
 authDialog.addEventListener("click", (e) => {
   if (e.target === authDialog) authDialog.close(); // clic en el fondo
 });
@@ -126,6 +144,47 @@ function renderServices() {
   );
 }
 
+// Logo nuevo (se cambia por código para no tocar el HTML): encabezado, portada y pestaña del navegador
+function aplicarLogo() {
+  $(".brand .pole")?.replaceWith(h("img", { class: "brand-logo", src: "/img/logo.png", alt: "", width: "44", height: "44" }));
+  const portada = $(".cover-content");
+  if (portada && !$(".cover-logo")) portada.prepend(h("img", { class: "cover-logo", src: "/img/logo.png", alt: "", width: "180", height: "180" }));
+  const icon = $("link[rel=icon]");
+  if (icon) { icon.setAttribute("href", "/img/logo-icon.png"); icon.setAttribute("type", "image/png"); }
+}
+aplicarLogo();
+
+// Vitrina de barberos en la portada: cambia sola cada 5 s (se pausa al pasar el mouse) y se puede elegir con los puntos
+function renderShowcase() {
+  const old = $(".hero .fade-scale");
+  const bs = publicData.barbers;
+  if (!old || !bs.length) return;
+  let i = 0;
+  const slides = bs.map((b, k) =>
+    h("figure", { class: `show-slide${k === 0 ? " active" : ""}`, "aria-hidden": String(k !== 0) },
+      h("img", { src: `/img/barbers/${b.specialtyKey}.jpg`, alt: `Foto de ${b.name}`, width: "640", height: "800", decoding: "async", loading: k === 0 ? "eager" : "lazy" }),
+      h("figcaption", {},
+        h("span", { class: "show-spec" }, b.title),
+        h("strong", {}, b.name),
+        b.ratingCount > 0 && h("span", { class: "show-rating" }, ratingLine(b.ratingAvg, b.ratingCount)))));
+  const dots = bs.map((b, k) =>
+    h("button", { type: "button", class: `show-dot${k === 0 ? " active" : ""}`, "aria-label": `Ver a ${b.name}`, "aria-current": String(k === 0), onclick: () => go(k) }, h("span")));
+  const cta = h("button", { class: "btn btn-small", type: "button", onclick: () => preselectBarber(bs[i].id) });
+  const label = () => (cta.textContent = `Reservar con ${bs[i].name.split(" ")[0].replace(/"/g, "")}`);
+  function go(k) {
+    i = (k + bs.length) % bs.length;
+    slides.forEach((s, n) => { s.classList.toggle("active", n === i); s.setAttribute("aria-hidden", String(n !== i)); });
+    dots.forEach((d, n) => { d.classList.remove("active"); void d.offsetWidth; d.classList.toggle("active", n === i); d.setAttribute("aria-current", String(n === i)); });
+    label();
+  }
+  const box = h("div", { class: "showcase", role: "region", "aria-roledescription": "carrusel", "aria-label": "Nuestros barberos" },
+    h("div", { class: "show-frame" }, slides),
+    h("div", { class: "show-controls" }, h("div", { class: "show-dots" }, dots), cta));
+  dots.forEach((d) => d.addEventListener("animationend", (e) => { if (e.target.parentElement === d && d.classList.contains("active")) go(i + 1); }, true));
+  label();
+  old.replaceWith(box);
+}
+
 function renderTeam() {
   mount(
     $("#team-list"),
@@ -134,6 +193,7 @@ function renderTeam() {
         barberPhoto(b),
         h("h3", {}, b.name),
         h("p", { class: "barber-title" }, b.title),
+        b.ratingCount > 0 && h("p", { class: "barber-rating" }, ratingLine(b.ratingAvg, b.ratingCount)),
         h("p", {}, b.bio),
         h("ul", { class: "chips" }, b.specialties.map((s) => h("li", {}, s))),
         h("button", { class: "btn btn-ghost btn-small", type: "button", onclick: () => preselectBarber(b.id) }, `Reservar con ${b.name.split(" ")[0].replace(/"/g, "")}`)
@@ -180,6 +240,7 @@ async function loadPublic() {
   }
   renderServices();
   renderTeam();
+  renderShowcase();
   renderHours();
   initBooking($("#booking-root"), { ...publicData, getUser: currentUser, askLogin: (cb) => openAuth(cb) });
   initQuiz($("#quiz-root"), { book: (id) => preselectBarber(id, { recommended: true }) });
@@ -194,6 +255,13 @@ const PANELS = {
 
 function route() {
   const hash = location.hash || "#/";
+  if (hash.startsWith("#/restablecer")) {
+    const token = new URLSearchParams(hash.split("?")[1] || "").get("token");
+    history.replaceState(null, "", location.pathname + location.search); // el token no se queda en la barra
+    landing.hidden = false; panel.hidden = true;
+    if (token) resetDialog(token); else forgotDialog();
+    return;
+  }
   const def = PANELS[hash];
   if (def) {
     const user = currentUser();
@@ -223,6 +291,57 @@ function route() {
   else window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", route);
+
+// ---------------- Recuperar contraseña ----------------
+function forgotDialog() {
+  const email = h("input", { type: "email", name: "email", autocomplete: "email", required: true });
+  const error = h("p", { class: "form-error", role: "alert", hidden: true });
+  const submit = h("button", { class: "btn", type: "submit" }, "Enviar enlace");
+  const body = h("form", { class: "form", novalidate: true,
+    onsubmit: async (e) => {
+      e.preventDefault();
+      error.hidden = true;
+      if (!email.value.includes("@")) { error.textContent = "Escribe un correo válido."; error.hidden = false; return; }
+      setBusy(submit, true, "Enviando…");
+      try {
+        await api.post("/auth/forgot", { email: email.value });
+        mount(body, h("p", { role: "status" }, "Si ese correo tiene una cuenta, te enviamos un enlace para crear una contraseña nueva. Vence en 60 minutos."));
+      } catch (err) { error.textContent = err.message; error.hidden = false; setBusy(submit, false); }
+    } },
+    h("p", { class: "muted" }, "Escribe el correo de tu cuenta y te mandamos un enlace para elegir una contraseña nueva."),
+    h("label", {}, "Correo", email), error, submit);
+  authDialog.close();
+  openDialog("Recuperar contraseña", body);
+}
+
+function resetDialog(token) {
+  const pass = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: "8" });
+  const pass2 = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: "8" });
+  const error = h("p", { class: "form-error", role: "alert", hidden: true });
+  const submit = h("button", { class: "btn", type: "submit" }, "Guardar contraseña");
+  const dlg = openDialog("Nueva contraseña",
+    h("form", { class: "form", novalidate: true,
+      onsubmit: async (e) => {
+        e.preventDefault();
+        error.hidden = true;
+        if (pass.value.length < 8) { error.textContent = "La contraseña debe tener al menos 8 caracteres."; error.hidden = false; return; }
+        if (pass.value !== pass2.value) { error.textContent = "Las contraseñas no coinciden."; error.hidden = false; return; }
+        setBusy(submit, true, "Guardando…");
+        try {
+          await api.post("/auth/reset", { token, password: pass.value });
+          dlg.close();
+          showNotice({ title: "Contraseña actualizada", text: "Ya puedes iniciar sesión con tu contraseña nueva." });
+          openAuth(null, "login");
+        } catch (err) { error.textContent = err.message; error.hidden = false; setBusy(submit, false); }
+      } },
+      h("label", {}, "Contraseña nueva", pass), h("label", {}, "Repítela", pass2), error, submit));
+}
+
+// Enlace «¿Olvidaste tu contraseña?» dentro del formulario de ingreso (se agrega por código)
+$("#form-login").insertBefore(
+  h("p", { class: "forgot" }, h("button", { type: "button", class: "link-btn", onclick: forgotDialog }, "¿Olvidaste tu contraseña?")),
+  $("#form-login button[type=submit]")
+);
 
 // ---------------- Portada ----------------
 const PAGE_PARTS = ["header.site-header", "#contenido", "footer.site-footer"].map((s) => $(s));

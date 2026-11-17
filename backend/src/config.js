@@ -29,6 +29,16 @@ const config = {
   adminPassword: env.ADMIN_PASSWORD || "",
   barberDefaultPassword: env.BARBER_DEFAULT_PASSWORD || "",
   bcryptRounds: 10,
+  // Enlaces de los correos (recuperar contraseña). En producción pon tu dirección pública: https://tu-app.onrender.com
+  publicUrl: (env.PUBLIC_URL || `http://localhost:${Number(env.PORT) || 3000}`).replace(/\/+$/, ""),
+  // Correo saliente (SMTP). Si SMTP_HOST está vacío, los correos se imprimen en la consola del servidor.
+  smtp: {
+    host: env.SMTP_HOST || "",
+    port: Number(env.SMTP_PORT) || 587,
+    user: env.SMTP_USER || "",
+    pass: env.SMTP_PASS || "",
+    from: env.MAIL_FROM || "UnderBarber <no-reply@underbarber.com>",
+  },
   // Canal de las notificaciones de citas: consola | memoria | silencio (ver FabricaNotificador en util.js)
   notifyChannel: env.NOTIFY_CHANNEL || "consola",
 };
