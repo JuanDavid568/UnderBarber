@@ -154,6 +154,15 @@ function aplicarLogo() {
 }
 aplicarLogo();
 
+// Enlaces a la política de tratamiento de datos (checkbox de registro y pie de página)
+function aplicarPolitica() {
+  const texto = $(".consent span");
+  if (texto && !texto.querySelector("a")) texto.append(" Lee la ", h("a", { href: "/privacidad", target: "_blank", rel: "noopener" }, "política de tratamiento de datos"), ".");
+  const pie = $(".site-footer");
+  if (pie && !pie.querySelector(".legal-link")) pie.append(h("p", { class: "legal-link" }, h("a", { href: "/privacidad" }, "Política de tratamiento de datos")));
+}
+aplicarPolitica();
+
 // Vitrina de barberos en la portada: cambia sola cada 5 s (se pausa al pasar el mouse) y se puede elegir con los puntos
 function renderShowcase() {
   const old = $(".hero .fade-scale");

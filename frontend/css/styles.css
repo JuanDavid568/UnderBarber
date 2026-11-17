@@ -428,7 +428,7 @@ dialog.modal h2 { padding-right: 4.5rem; font-size: 1.6rem; }
 /* ---- Vitrina de barberos (portada) ---- */
 .showcase { width: min(100%, 27rem); justify-self: end; }
 .show-frame { position: relative; aspect-ratio: 4 / 5; background: #000; isolation: isolate; }
-.show-frame::before { content: ""; position: absolute; inset: 1rem -1rem -1rem 1rem; border: 2px solid var(--brass); z-index: -1; }
+.show-frame::before { content: ""; position: absolute; inset: .75rem; border: 1px solid rgba(194, 154, 75, .55); z-index: 2; pointer-events: none; }
 .show-slide { position: absolute; inset: 0; margin: 0; overflow: hidden; clip-path: inset(100% 0 0 0); transition: clip-path .85s cubic-bezier(.65, 0, .25, 1); background: #000; }
 .show-slide.active { clip-path: inset(0); z-index: 1; }
 .show-slide img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.12); transition: transform 6s ease-out; }
@@ -451,3 +451,12 @@ dialog.modal h2 { padding-right: 4.5rem; font-size: 1.6rem; }
   .show-slide, .show-slide img, .show-slide figcaption { transition: none; }
   .show-dot.active span::after { animation: none; transform: scaleX(1); }
 }
+
+/* ---- Página de política de datos ---- */
+.legal-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .9rem clamp(1rem, 4vw, 2.5rem); border-bottom: 1px solid var(--line); }
+.legal-head .brand { display: inline-flex; align-items: center; gap: .6rem; font-family: var(--display); font-size: 1.6rem; text-transform: uppercase; color: var(--bone); text-decoration: none; }
+.legal { max-width: 46rem; margin: 0 auto; padding: 2.5rem 1rem 4rem; line-height: 1.65; }
+.legal h1 { font-family: var(--display); font-size: clamp(2.2rem, 6vw, 3.4rem); text-transform: uppercase; line-height: 1; margin: 0 0 .4rem; }
+.legal h2 { font-family: var(--display); font-size: 1.5rem; text-transform: uppercase; color: var(--brass-hi); margin: 2rem 0 .4rem; }
+.legal ul { padding-left: 1.2rem; display: grid; gap: .4rem; }
+.legal a, .consent a, .legal-link a { color: var(--brass-hi); }
