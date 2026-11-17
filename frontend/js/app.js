@@ -156,6 +156,14 @@ aplicarLogo();
 
 // Enlaces a la política de tratamiento de datos (checkbox de registro y pie de página)
 function aplicarPolitica() {
+  // Si el formulario de registro no trae la casilla (index.html antiguo), se agrega aquí
+  const registro = $("#form-register");
+  if (registro && !registro.querySelector("input[name=consent]")) {
+    const casilla = h("label", { class: "consent" },
+      h("input", { type: "checkbox", name: "consent", required: true }),
+      h("span", {}, "Autorizo el tratamiento de mis datos personales (nombre, correo y celular) para gestionar mi cuenta y mis citas en UnderBarber, conforme a la Ley 1581 de 2012 de protección de datos personales. Puedo consultarlos, actualizarlos o pedir su eliminación."));
+    registro.insertBefore(casilla, registro.querySelector(".form-error") || registro.querySelector("button[type=submit]"));
+  }
   const texto = $(".consent span");
   if (texto && !texto.querySelector("a")) texto.append(" Lee la ", h("a", { href: "/privacidad", target: "_blank", rel: "noopener" }, "política de tratamiento de datos"), ".");
   const pie = $(".site-footer");
