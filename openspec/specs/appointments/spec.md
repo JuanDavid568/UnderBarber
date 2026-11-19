@@ -59,3 +59,25 @@ El administrador SHALL ver todas las citas y estadísticas básicas (citas por e
 #### Scenario: Estadísticas
 - **WHEN** el administrador abre su panel
 - **THEN** ve totales de citas, clientes y recomendaciones por barbero
+
+### Requirement: Reprogramar cita
+Un cliente SHALL poder mover una cita propia pendiente o confirmada a otro horario libre sin cancelarla.
+
+#### Scenario: Reprogramación exitosa
+- **WHEN** el cliente elige un horario libre válido para su cita activa
+- **THEN** la cita cambia de horario, vuelve a `pending` y se registra `rescheduled_at`
+
+#### Scenario: Su propio horario
+- **WHEN** el cliente elige un horario que solo se cruza con su misma cita
+- **THEN** se permite, porque la cita se excluye al validar
+
+#### Scenario: Conflicto, pasado o cita ajena
+- **WHEN** el horario está ocupado, ya pasó, o la cita es de otra persona
+- **THEN** se responde 409, 400 o 404 respectivamente y la cita queda igual
+
+### Requirement: Bloqueos como horario ocupado
+La disponibilidad y la reserva SHALL tratar los bloqueos de horario como intervalos ocupados, igual que las citas activas.
+
+#### Scenario: Horario bloqueado
+- **WHEN** un horario cae dentro de un bloqueo del barbero o de toda la barbería
+- **THEN** no aparece como disponible y reservarlo responde 409

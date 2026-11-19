@@ -154,6 +154,15 @@ function aplicarLogo() {
 }
 aplicarLogo();
 
+// Quita de la página cualquier texto de créditos técnicos («Hecho con OpenSpec, Node.js, Express, PostgreSQL…»)
+function quitarCreditos() {
+  const rx = /openspec|node\.?js|express|postgres/i;
+  document.querySelectorAll("footer p, footer small, footer span, footer li, footer div, main small, main p.muted").forEach((el) => {
+    if (el.children.length === 0 && rx.test(el.textContent) && !el.closest("dialog")) el.remove();
+  });
+}
+quitarCreditos();
+
 // Enlaces a la política de tratamiento de datos (checkbox de registro y pie de página)
 function aplicarPolitica() {
   // Si el formulario de registro no trae la casilla (index.html antiguo), se agrega aquí

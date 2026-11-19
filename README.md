@@ -1,50 +1,67 @@
 # UnderBarber
 
-Página web completa de una barbería: los clientes conocen al equipo, responden un cuestionario que les recomienda el barbero ideal según el corte que quieren, y agendan su cita. Los barberos manejan su agenda y el dueño administra servicios y barberos. Todo es web y está listo para subirse a un hosting.
+Página web completa de una barbería de Bogotá: los clientes conocen al equipo, responden un cuestionario que les recomienda el barbero ideal y agendan su cita; los barberos manejan su agenda y el dueño administra servicios, barberos y estadísticas.
 
-Especificado con **OpenSpec** (carpeta [`openspec/`](openspec)).
+El proyecto se construyó con **desarrollo guiado por especificaciones (SDD) usando OpenSpec**, y su segunda etapa aplica **12 patrones de diseño** sobre el sistema. Los documentos del proceso están en la raíz:
+
+| Documento | Para qué sirve |
+|---|---|
+| [`PLAN_INGENIERIA.md`](PLAN_INGENIERIA.md) | Decisiones técnicas y su justificación, requisitos verificables y riesgos |
+| [`openspec/`](openspec) | Especificaciones, propuestas, tareas y registro de cambios |
+| [`INFORME_FINAL.md`](INFORME_FINAL.md) | Resultados, dificultades, decisiones modificadas y conclusiones sobre SDD |
 
 ## Tecnologías
 
 | Capa | Tecnología |
 |---|---|
 | Frontend | HTML + CSS + JavaScript (módulos ES, sin build) |
-| Backend | Node.js 20+ y Express (API REST) |
+| Backend | Node.js 20+ y Express 4 (API REST) |
 | Base de datos | PostgreSQL 14+ (`pg`) |
-| Seguridad | JWT, bcrypt, helmet (CSP), rate limiting, consultas parametrizadas |
-| Despliegue | Docker, `render.yaml` (Render), `docker-compose.yml` (local) |
+| Seguridad | JWT, bcrypt, helmet (CSP), límites de intentos, consultas parametrizadas |
+| Correo | `nodemailer` (SMTP) |
+| Despliegue | Docker, `docker-compose.yml` (local), `render.yaml` (Render) |
 
-## Qué hace
+## Los 12 patrones de diseño
 
-- **Portada:** pantalla completa con un solo botón «Reservar»; al pulsarlo se abre la página de la barbería. Se muestra una vez por visita. Para usar tu propia foto de fondo, guárdala como `frontend/img/portada.jpg`.
-- **Fotos del equipo:** cada barbero tiene su foto en `frontend/img/barbers/` (`fade.jpg`, `classic.jpg`, `creative.jpg`, vertical 4:5, ~640×800). Para cambiarla, reemplaza el archivo con el mismo nombre y vuelve a construir. Si falta, se muestra un emblema.
-- **Público:** inicio, carta de servicios y precios, equipo, horarios.
-- **Cuestionario «Encuentra tu barbero»:** 6 preguntas; cada respuesta suma puntos a los barberos. Muestra el barbero recomendado, su % de compatibilidad, los motivos y un botón para reservar con él.
-- **Cliente:** registro/login, reservar (servicio → barbero → fecha y hora), ver y cancelar sus citas.
-- **Barbero:** agenda por día o 7 días, confirmar/completar/cancelar citas, editar su perfil y horario.
-- **Administrador:** estadísticas, todas las citas, crear/editar servicios, editar barberos.
-- No se pueden cruzar dos citas del mismo barbero (ni con carreras entre dos clientes a la vez).
+Cada patrón está dentro de los archivos existentes y marcado con el comentario `PATRÓN <nombre>`. Para encontrarlos: buscar `PATRÓN` en `backend/src`. La justificación completa está en [`PLAN_INGENIERIA.md`](PLAN_INGENIERIA.md) y los requisitos en [`openspec/specs/design-patterns/spec.md`](openspec/specs/design-patterns/spec.md).
 
-### Los 3 barberos (nombres de ejemplo)
+| # | Patrón | Tipo | Problema que resuelve | Dónde |
+|---|---|---|---|---|
+| 1 | Builder | Creacional | Armar y validar una cita con varios datos sueltos | `CitaBuilder` en `backend/src/util.js` |
+| 2 | Factory Method | Creacional | Decidir en un solo lugar el canal de notificación y de correo | `FabricaNotificador`, `crearCorreo` en `util.js` |
+| 3 | Singleton | Creacional | Una sola configuración, un solo pool de conexiones y un solo bus de eventos | `config.js`, `db.js`, `bus` en `util.js` |
+| 4 | Proxy | Estructural | No consultar la base de datos en cada visita a las listas públicas | `conCache` en `util.js`, usado en `routes/public.js` |
+| 5 | Facade | Estructural | Reservar implica bloqueo, validaciones, inserción y manejo de choques: una sola puerta | `ReservaFacade` en `routes/appointments.js` |
+| 6 | Decorator | Estructural | Reenviar errores async y avisar de consultas lentas sin tocar el código original | `wrap` en `util.js`, `query` en `db.js` |
+| 7 | Adapter | Estructural | Pasar filas `snake_case` al JSON `camelCase` y adaptar `nodemailer` a `enviar()` | `publicBarber`, `shapeAppointment`, `CorreoSmtp` en `util.js` |
+| 8 | State | Comportamiento | Qué se puede hacer con una cita según su estado | `EstadoCita` en `util.js` |
+| 9 | Chain of Responsibility | Comportamiento | Reglas de reserva en orden, reutilizables al reprogramar | `ManejadorReserva` en `util.js`, cadena en `routes/appointments.js` |
+| 10 | Template Method | Comportamiento | Mismo esqueleto (cargar, validar, guardar, responder) para editar servicios y perfiles | `ActualizarRecurso` en `util.js`, subclases en `routes/admin.js` y `routes/barber.js` |
+| 11 | Observer | Comportamiento | Reaccionar a eventos de citas sin acoplar las rutas | `bus`, `publicar`, `registrarObservadores` en `util.js` |
+| 12 | Strategy | Comportamiento | Criterio de desempate del ranking del cuestionario intercambiable | `ESTRATEGIAS_DESEMPATE` en `backend/src/services/quiz.js` |
 
-| Barbero | Especialidad |
-|---|---|
-| Santiago «Santi» Rojas | Fades y degradados, estilo urbano |
-| Andrés Mejía | Clásico, tijera y barba |
-| Camilo Vargas | Rizos, texturas, diseños y color |
+## Qué hace el sistema
 
-Cambia los nombres y textos en `database/seed.sql` **antes del primer arranque**, o después desde el panel de administrador (Administración → Barberos: nombre, título, biografía, especialidades y horario).
+- **Público:** portada, vitrina de barberos, servicios y precios, equipo con calificaciones, horarios.
+- **Cuestionario «Encuentra tu barbero»:** 6 preguntas; cada respuesta suma puntos a los barberos y se recomienda uno con su % de compatibilidad.
+- **Cliente:** registro con autorización de datos (Ley 1581 de 2012), inicio de sesión, recuperar contraseña, reservar, reprogramar, cancelar y calificar sus citas.
+- **Barbero:** agenda por día o 7 días, confirmar/completar/cancelar, bloquear días u horas, editar su perfil.
+- **Administrador:** estadísticas y dashboard, todas las citas, servicios, barberos y bloqueos.
+- **Sin cruces de horario:** dos citas del mismo barbero no pueden solaparse, ni siquiera con dos clientes reservando a la vez.
+- **Política de datos** publicada en `/privacidad`.
 
-## Probarlo en tu computador
+## Instalación y ejecución local
 
-**Opción A — Docker (lo más fácil):**
+### Opción A — Docker (la más fácil)
 
 ```bash
 docker compose up --build
 # abre http://localhost:3000
 ```
 
-**Opción B — Node + PostgreSQL instalados:**
+Si existe `backend/package-lock.json` y agregaste dependencias, bórralo antes de construir.
+
+### Opción B — Node y PostgreSQL instalados
 
 ```bash
 createdb underbarber
@@ -54,141 +71,92 @@ npm install
 npm start                    # http://localhost:3000
 ```
 
+La primera vez, la aplicación crea las tablas y carga los datos iniciales sola. En desarrollo (`NODE_ENV` distinto de `production`) también se crean cuentas de prueba para cada rol; están definidas en `backend/src/init.js`. **En producción no se crean cuentas de prueba.**
 
-> En producción **no** se crean cuentas de prueba ni contraseñas por defecto (ver abajo).
+## Configuración (variables de entorno)
 
-## Subirlo a un hosting
-
-### Render (recomendado, tiene plan gratuito)
-
-1. Sube esta carpeta a un repositorio de **GitHub**.
-2. En [render.com](https://render.com): **New → Blueprint** y elige el repositorio. Render lee `render.yaml` y crea la base PostgreSQL y el servicio web.
-3. Cuando te lo pida, escribe:
-   - `ADMIN_EMAIL` y `ADMIN_PASSWORD` (mínimo 8 caracteres): tu acceso de administrador.
-   - `BARBER_DEFAULT_PASSWORD`: contraseña inicial de los 3 barberos (cada uno la cambia desde su panel).
-4. Espera el despliegue. Tu página queda en `https://underbarber.onrender.com` (o el nombre que Render asigne). `/health` responde `{"status":"ok"}`.
-
-`JWT_SECRET` lo genera Render automáticamente. Revisa en Render los límites vigentes del plan gratuito (por ejemplo, el servicio puede «dormirse» tras un rato sin visitas y la primera carga tarda más).
-
-### Railway, Fly.io, un VPS u otro hosting con Docker o Node
-
-Solo necesitas una base PostgreSQL y estas variables de entorno:
+Copia `.env.example` a `backend/.env` (nunca lo subas al repositorio).
 
 | Variable | Obligatoria en producción | Descripción |
 |---|---|---|
 | `NODE_ENV` | sí | `production` |
 | `DATABASE_URL` | sí | Cadena de conexión de PostgreSQL |
 | `DATABASE_SSL` | si tu proveedor lo exige | `true` |
-| `JWT_SECRET` | sí | Mínimo 32 caracteres aleatorios |
-| `ADMIN_PASSWORD` | sí | Contraseña del administrador (≥ 8) |
+| `JWT_SECRET` | sí | Mínimo 32 caracteres aleatorios. El servidor no arranca sin él en producción |
 | `ADMIN_EMAIL` | no | Por defecto `admin@underbarber.com` |
-| `BARBER_DEFAULT_PASSWORD` | recomendada | Si falta, se genera una y se imprime **una vez** en los logs |
+| `ADMIN_PASSWORD` | sí | Mínimo 8 caracteres |
+| `BARBER_DEFAULT_PASSWORD` | recomendada | Clave inicial de los 3 barberos; si falta, se genera una y se imprime una vez en los logs |
+| `PUBLIC_URL` | sí, para recuperar contraseña | Dirección pública del sitio, sin barra final |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | para enviar correos | Sin `SMTP_HOST`, el enlace de recuperación se imprime en los logs |
+| `NOTIFY_CHANNEL` | no | `consola` (por defecto), `memoria` o `silencio` |
 | `PORT` | la suele poner el hosting | Por defecto 3000 |
+| `SHOP_UTC_OFFSET` | no | Zona de la barbería; por defecto `-05:00` (Colombia) |
 
-Con Docker: el `Dockerfile` ya está listo. Sin Docker: deja el directorio raíz del servicio en la raíz del repositorio (el backend lee `frontend/` y `database/` desde ahí), con comando de build `cd backend && npm install` y comando de inicio `cd backend && npm start`.
+Genera un `JWT_SECRET` con:
 
-### Dominio propio y HTTPS
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
 
-Render y Railway dan HTTPS automático; para dominio propio agrégalo en su panel y crea el registro DNS que te indiquen.
+## Pruebas automatizadas
 
-### Antes de publicar, personaliza
+```bash
+cd backend
+npm test
+```
 
-- `frontend/index.html`: dirección real de la barbería y número de WhatsApp (busca «Visítanos»).
-- `database/seed.sql`: nombres de barberos, biografías, servicios y precios.
-- Zona horaria: por defecto Colombia (`SHOP_UTC_OFFSET=-05:00`).
+Ejecutan con `node --test`, sin base de datos ni red: cuestionario y estrategias de desempate, generación de horarios, dashboard, bloqueos, calificaciones, tokens de recuperación y los patrones de diseño (Builder, State, Chain of Responsibility, Template Method, Proxy, Factory Method, Observer, Strategy, Singleton, Decorator y Adapter). El Facade se comprueba reservando contra PostgreSQL real.
+
+## Despliegue en Render
+
+1. Sube el repositorio a GitHub.
+2. En [render.com](https://render.com): **New → Blueprint** y elige el repositorio. Render lee `render.yaml` y crea la base de datos y el servicio web.
+3. Cuando lo pida, escribe `ADMIN_EMAIL`, `ADMIN_PASSWORD` y `BARBER_DEFAULT_PASSWORD`. `JWT_SECRET` se genera solo.
+4. Cuando el servicio esté en «Live», agrega la variable `PUBLIC_URL` con la dirección del sitio.
+5. `/health` responde `{"status":"ok"}` si todo funciona.
+
+**Límites del plan gratuito** (consultados en la documentación de Render y Neon; revísalos antes de depender de ellos): el servicio web se duerme tras 15 minutos sin visitas y tarda cerca de un minuto en despertar; la base de datos gratuita de Render vence a los 30 días. Para conservar los datos, usa una base de datos de otro proveedor (por ejemplo Neon, con `DATABASE_SSL=true`).
+
+Con otro hosting (Railway, Fly.io, un VPS): solo necesitas PostgreSQL y las variables de la tabla anterior; el `Dockerfile` está listo.
 
 ## Estructura
 
 ```
 UnderBarber/
-├── openspec/            especificaciones (OpenSpec): project.md, specs/ y changes/
-├── frontend/            index.html, css/, js/ (api, ui, quiz, booking, panels, app)
+├── PLAN_INGENIERIA.md · INFORME_FINAL.md · README.md
+├── openspec/            project.md, specs/, changes/ (archive/), CHANGELOG.md
+├── frontend/            index.html, privacidad.html, css/, js/, img/
 ├── backend/
-│   ├── src/             server, app, config, db, init y routes/ (auth, public, appointments, barber, admin)
+│   ├── src/             server, app, config, db, init, util y routes/ (auth, public, appointments, barber, admin)
 │   │   └── services/    quiz.js y slots.js (lógica pura, con pruebas)
 │   └── test/            pruebas con node --test
 ├── database/            schema.sql y seed.sql
-├── Dockerfile · docker-compose.yml · render.yaml · .env.example
+├── docs/                ROADMAP.md
+└── Dockerfile · docker-compose.yml · render.yaml · .env.example
 ```
-
-## Cómo funciona la recomendación
-
-Cada opción de cada pregunta asigna puntos a uno o más barberos (tabla `quiz_option_points`). Se suman los puntos de las 6 respuestas; gana el barbero con más puntos (si empatan, el de mayor compatibilidad y luego el primero de la lista). El porcentaje es los puntos obtenidos sobre el máximo que ese barbero podría lograr. Los puntajes **no** se envían al navegador y se pueden ajustar editando la base de datos sin tocar el código.
 
 ## API (resumen)
 
 | Ruta | Quién |
 |---|---|
-| `POST /api/auth/register` · `POST /api/auth/login` · `GET /api/auth/me` · `PATCH /api/auth/password` | público / sesión |
-| `GET /api/barbers` · `GET /api/services` · `GET /api/availability` | público |
+| `POST /api/auth/register` · `login` · `forgot` · `reset` · `GET /api/auth/me` · `PATCH /api/auth/password` | público / sesión |
+| `GET /api/barbers` · `/api/services` · `/api/availability` | público |
 | `GET /api/quiz` · `POST /api/quiz/submit` | público |
-| `POST /api/appointments` · `GET /api/appointments/mine` · `PATCH /api/appointments/:id/cancel` | sesión |
-| `GET /api/barber/appointments` · `PATCH /api/barber/appointments/:id/status` · `GET/PATCH /api/barber/profile` | barbero |
-| `GET /api/admin/stats` · `GET /api/admin/appointments` · `/api/admin/services` · `/api/admin/barbers` | administrador |
+| `POST /api/appointments` · `GET /mine` · `PATCH /:id/cancel` · `PATCH /:id/reschedule` · `POST /:id/review` | sesión |
+| `GET /api/barber/appointments` · `PATCH /status` · `GET/PATCH /profile` · `GET/POST/DELETE /blocks` | barbero |
+| `GET /api/admin/stats` · `/dashboard` · `/appointments` · `/services` · `/barbers` | administrador |
 | `GET /health` | hosting |
-
-## Pruebas
-
-```bash
-cd backend
-npm test        # lógica del cuestionario y de horarios (no necesita base de datos)
-```
-
-## OpenSpec
-
-La carpeta `openspec/` sigue la estructura de OpenSpec: `project.md`, una spec por capacidad (`auth`, `barbers-services`, `quiz-recommendation`, `appointments`, `landing`, `deployment`) y los cambios archivados en `changes/archive/` (construcción inicial y portada). Para trabajar con la CLI oficial: `npx @fission-ai/openspec init` y `openspec list`. Cualquier cambio futuro (por ejemplo, recordatorios por WhatsApp) se propone primero en `openspec/changes/`.
 
 ## Seguridad (resumen)
 
-Contraseñas con bcrypt; sesiones JWT con expiración; límites de intentos en login, registro, cuestionario y reservas; cabeceras con helmet y CSP estricta; consultas parametrizadas; texto dinámico escapado en el frontend; secretos solo por variables de entorno; contenedor sin privilegios de root.
+Contraseñas con bcrypt; sesiones JWT con expiración; límites de intentos en login, registro, recuperación, cuestionario y reservas; cabeceras con helmet y CSP estricta; consultas parametrizadas; texto dinámico escapado en el frontend; secretos solo por variables de entorno; en producción el servidor se niega a arrancar con secretos débiles; contenedor sin privilegios de root.
 
-## Qué hace cada parte del proyecto
+## Trabajo con OpenSpec
 
-### Raíz
-| Archivo | Para qué sirve |
-|---|---|
-| `Dockerfile` | Construye la imagen de la app para correrla en Docker o en un hosting |
-| `docker-compose.yml` | Levanta la app y la base de datos en tu computador con un solo comando |
-| `render.yaml` | Le dice a Render cómo crear el servicio web y la base de datos |
-| `.env.example` | Ejemplo de variables de entorno (base de datos, claves, cuentas iniciales) |
-| `.gitignore` | Archivos que Git no sube (por ejemplo `.env` y `node_modules`) |
-| `.dockerignore` | Archivos que Docker no copia a la imagen |
+La carpeta `openspec/` tiene el contexto (`project.md`), una especificación por capacidad en `specs/`, los cambios ya implementados en `changes/archive/` y el registro cronológico en `openspec/CHANGELOG.md`. Todo cambio funcional se propone primero en `openspec/changes/` (ver `openspec/AGENTS.md`). Con la CLI oficial: `npx @fission-ai/openspec init` y `openspec list`.
 
-### `frontend/` (lo que ve el cliente)
-| Archivo | Para qué sirve |
-|---|---|
-| `index.html` | La página completa: portada, inicio, servicios, equipo, cuestionario, reservas y contacto |
-| `css/styles.css` | Todos los estilos y la adaptación a celular |
-| `js/app.js` | Arranque de la página, portada, menú y sección del equipo |
-| `js/quiz.js` | El cuestionario «Encuentra tu barbero» y su resultado |
-| `js/booking.js` | El flujo de reservar: servicio, barbero, fecha y hora |
-| `js/panels.js` | Paneles de cliente («Mis citas»), barbero y administrador |
-| `js/api.js` | Comunicación con el backend |
-| `js/ui.js` | Funciones comunes para dibujar la interfaz de forma segura |
-| `js/cover-init.js` | Decide si se muestra la portada al entrar |
-| `img/barbers/` | Fotos de los barberos |
+## Antes de publicar, personaliza
 
-### `backend/src/` (el servidor)
-| Archivo | Para qué sirve |
-|---|---|
-| `server.js` | Punto de entrada: valida la configuración, prepara la base y arranca el servidor |
-| `app.js` | Configura Express: seguridad, rutas y entrega del frontend |
-| `config.js` | Lee las variables de entorno |
-| `db.js` | Conexión a PostgreSQL y manejo de transacciones |
-| `init.js` | Crea las tablas y carga los datos iniciales la primera vez |
-| `util.js` | Errores HTTP y validaciones |
-| `middleware/auth.js` | Inicio de sesión con JWT y control de roles (cliente, barbero, admin) |
-| `routes/auth.js` | Registro, login y cambio de contraseña |
-| `routes/public.js` | Barberos, servicios, horarios libres y cuestionario |
-| `routes/appointments.js` | Crear, ver y cancelar citas del cliente |
-| `routes/barber.js` | Agenda del barbero y cambio de estado de citas |
-| `routes/admin.js` | Estadísticas, servicios y edición de barberos |
-| `services/quiz.js` | Calcula qué barbero recomienda el cuestionario |
-| `services/slots.js` | Calcula los horarios disponibles de cada barbero |
-
-### Otras carpetas
-| Carpeta | Para qué sirve |
-|---|---|
-| `database/` | `schema.sql` (tablas) y `seed.sql` (datos de ejemplo) |
-| `backend/test/` | Pruebas automáticas del cuestionario y los horarios |
-| `openspec/` | Especificaciones del proyecto hechas con OpenSpec |
+- `frontend/index.html`: dirección real y número de WhatsApp (busca «Visítanos»).
+- `database/seed.sql`: nombres de barberos, biografías, servicios y precios.
+- `frontend/privacidad.html`: datos del responsable del tratamiento.
